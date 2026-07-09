@@ -71,6 +71,50 @@ class ConfigLoadingTests(unittest.TestCase):
             self.assertEqual(store.image_timeout_retry_secs, 1)
             self.assertEqual(store.get()["image_timeout_retry_secs"], 1)
 
+    def test_image_models_include_builtin_versions_and_normalize_custom_versions(self) -> None:
+        module = self.config_module
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_file = Path(tmp_dir) / "config.json"
+            config_file.write_text(
+                json.dumps({
+                    "auth-key": "test-auth",
+                    "custom_image_models": [
+                        " GPT-5-6 ",
+                        "gpt-5-5",
+                        "",
+                        "custom-image-v1",
+                        "gpt-5-6",
+                    ],
+                }),
+                encoding="utf-8",
+            )
+            store = module.ConfigStore(config_file)
+
+            self.assertEqual(store.custom_image_models, ["gpt-5-6", "custom-image-v1"])
+            self.assertEqual(
+                store.image_models,
+                ["gpt-image-2", "gpt-5-5-thinking", "gpt-5-5", "gpt-5-3", "gpt-5-6", "custom-image-v1"],
+            )
+            self.assertEqual(store.get()["custom_image_models"], ["gpt-5-6", "custom-image-v1"])
+            self.assertEqual(
+                store.get()["image_models"],
+                ["gpt-image-2", "gpt-5-5-thinking", "gpt-5-5", "gpt-5-3", "gpt-5-6", "custom-image-v1"],
+            )
+
+    def test_update_derives_custom_image_models_from_full_model_list(self) -> None:
+        module = self.config_module
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_file = Path(tmp_dir) / "config.json"
+            config_file.write_text(json.dumps({"auth-key": "test-auth"}), encoding="utf-8")
+            store = module.ConfigStore(config_file)
+
+            saved = store.update({
+                "image_models": ["gpt-image-2", "gpt-5-5-thinking", "gpt-5-7", "custom-image-v2"],
+            })
+
+            self.assertEqual(saved["custom_image_models"], ["gpt-5-7", "custom-image-v2"])
+            self.assertNotIn("image_models", store.data)
+
 
 if __name__ == "__main__":
     unittest.main()

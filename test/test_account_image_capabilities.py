@@ -76,6 +76,20 @@ class AccountCapabilityTests(unittest.TestCase):
         self.assertEqual(split_image_model("plus-gpt-image-2"), (None, None))
         self.assertEqual(split_image_model("unknown-image-model"), (None, None))
 
+    def test_split_image_model_supports_configured_web_image_versions(self) -> None:
+        original_custom_models = config.data.get("custom_image_models")
+        config.data["custom_image_models"] = ["custom-image-v1"]
+        try:
+            self.assertEqual(split_image_model("gpt-5-5-thinking"), (None, "gpt-5-5-thinking"))
+            self.assertEqual(split_image_model("gpt-5-5"), (None, "gpt-5-5"))
+            self.assertEqual(split_image_model("gpt-5-3"), (None, "gpt-5-3"))
+            self.assertEqual(split_image_model("custom-image-v1"), (None, "custom-image-v1"))
+        finally:
+            if original_custom_models is None:
+                config.data.pop("custom_image_models", None)
+            else:
+                config.data["custom_image_models"] = original_custom_models
+
     def test_get_available_access_token_filters_by_plan_type(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             service = AccountService(JSONStorageBackend(Path(tmp_dir) / "accounts.json"))

@@ -146,8 +146,12 @@ function dataUrlToFile(dataUrl: string, fileName: string, mimeType?: string) {
 
 function filterImageModels(items: Model[]): ImageModel[] {
   return items
+    .filter((item) => {
+      const id = String(item.id || "").trim().toLowerCase();
+      return id.includes("image") || item.owned_by === "chatgpt2api";
+    })
     .map((item) => String(item.id || "").trim())
-    .filter((id, index, list) => id.toLowerCase().includes("image") && list.indexOf(id) === index);
+    .filter((id, index, list) => Boolean(id) && list.indexOf(id) === index);
 }
 
 function normalizeStoredImageModel(value: string | null, availableModels: ImageModel[]): ImageModel {

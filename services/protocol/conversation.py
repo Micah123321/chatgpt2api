@@ -16,11 +16,11 @@ from services.config import config
 from services.image_storage_service import image_storage_service
 from services.openai_backend_api import ImageContentPolicyError, ImagePollTimeoutError, OpenAIBackendAPI, TEXT_STREAM_TIMEOUT_SECS
 from utils.helper import (
-    IMAGE_MODELS,
     extract_image_from_message_content,
     is_codex_image_model,
     is_supported_image_model,
     split_image_model,
+    supported_image_models,
 )
 from utils.image_tokens import count_image_content_tokens
 from utils.log import logger
@@ -1531,7 +1531,7 @@ def _generate_single_image(
 def stream_image_outputs_with_pool(request: ConversationRequest) -> Iterator[ImageOutput]:
     """并行生成多张图片，每张图片使用独立线程和账号，互不阻塞。"""
     if not is_supported_image_model(request.model):
-        raise ImageGenerationError("unsupported image model,supported models: " + ", ".join(sorted(IMAGE_MODELS)))
+        raise ImageGenerationError("unsupported image model,supported models: " + ", ".join(sorted(supported_image_models())))
 
     if request.n <= 1:
         # 单张图片，直接执行（无需线程池开销）

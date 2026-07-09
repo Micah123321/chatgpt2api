@@ -635,7 +635,7 @@ class OpenAIBackendAPI:
             return "gpt-5-5-thinking"
         if base_model == CODEX_IMAGE_MODEL:
             return base_model
-        return "auto"
+        return base_model
 
     def _image_headers(self, path: str, requirements: ChatRequirements, conduit_token: str = "", accept: str = "*/*") -> \
             Dict[str, str]:

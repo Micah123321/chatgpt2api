@@ -82,6 +82,13 @@ DEFAULT_THIRD_PARTY_APPS = {
     },
 }
 
+DEFAULT_IMAGE_MODELS = [
+    "gpt-image-2",
+    "gpt-5-5-thinking",
+    "gpt-5-5",
+    "gpt-5-3",
+]
+
 
 def _normalize_bool(value: object, default: bool = False) -> bool:
     if isinstance(value, str):
@@ -102,6 +109,32 @@ def _normalize_positive_int(value: object, default: int, minimum: int = 0) -> in
     except (OverflowError, TypeError, ValueError):
         normalized = default
     return max(minimum, normalized)
+
+
+def _model_entries(value: object) -> list[object]:
+    if isinstance(value, str):
+        return value.replace(",", "\n").splitlines()
+    if isinstance(value, (list, tuple, set)):
+        return list(value)
+    return []
+
+
+def _normalize_image_model_list(value: object) -> list[str]:
+    normalized: list[str] = []
+    for item in _model_entries(value):
+        model = str(item or "").strip().lower()
+        if model and model not in normalized:
+            normalized.append(model)
+    return normalized
+
+
+def _normalize_custom_image_models(value: object) -> list[str]:
+    builtin = set(DEFAULT_IMAGE_MODELS)
+    return [model for model in _normalize_image_model_list(value) if model not in builtin]
+
+
+def _image_models_with_defaults(custom_models: object) -> list[str]:
+    return list(DEFAULT_IMAGE_MODELS) + _normalize_custom_image_models(custom_models)
 
 
 def _normalize_backup_include(value: object) -> dict[str, bool]:
@@ -430,6 +463,14 @@ class ConfigStore:
             return 3
 
     @property
+    def custom_image_models(self) -> list[str]:
+        return _normalize_custom_image_models(self.data.get("custom_image_models"))
+
+    @property
+    def image_models(self) -> list[str]:
+        return _image_models_with_defaults(self.data.get("custom_image_models"))
+
+    @property
     def image_parallel_generation(self) -> bool:
         value = self.data.get("image_parallel_generation", True)
         if isinstance(value, str):
@@ -562,6 +603,8 @@ class ConfigStore:
         data["image_poll_initial_wait_secs"] = self.image_poll_initial_wait_secs
         data["image_timeout_retry_secs"] = self.image_timeout_retry_secs
         data["image_account_concurrency"] = self.image_account_concurrency
+        data["custom_image_models"] = self.custom_image_models
+        data["image_models"] = self.image_models
         data["image_parallel_generation"] = self.image_parallel_generation
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts
@@ -601,8 +644,16 @@ class ConfigStore:
         return _normalize_third_party_apps_settings(self.data.get("third_party_apps"))
 
     def update(self, data: dict[str, object]) -> dict[str, object]:
+        incoming = dict(data or {})
         next_data = dict(self.data)
-        next_data.update(dict(data or {}))
+        next_data.update(incoming)
+        if "custom_image_models" in incoming:
+            next_data["custom_image_models"] = _normalize_custom_image_models(next_data.get("custom_image_models"))
+        elif "image_models" in incoming:
+            next_data["custom_image_models"] = _normalize_custom_image_models(next_data.get("image_models"))
+        elif "custom_image_models" in next_data:
+            next_data["custom_image_models"] = _normalize_custom_image_models(next_data.get("custom_image_models"))
+        next_data.pop("image_models", None)
         if "backup" in next_data:
             next_data["backup"] = _normalize_backup_settings(next_data.get("backup"))
         if "image_storage" in next_data:

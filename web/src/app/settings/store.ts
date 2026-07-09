@@ -66,6 +66,28 @@ const DEFAULT_THIRD_PARTY_APPS: ThirdPartyAppsSettings = {
   },
 };
 
+const DEFAULT_IMAGE_MODELS = ["gpt-image-2", "gpt-5-5-thinking", "gpt-5-5", "gpt-5-3"];
+
+function normalizeImageModelList(value: unknown): string[] {
+  const entries = typeof value === "string"
+    ? value.replaceAll(",", "\n").split("\n")
+    : Array.isArray(value)
+      ? value
+      : [];
+  const models: string[] = [];
+  for (const item of entries) {
+    const model = String(item || "").trim().toLowerCase();
+    if (model && !models.includes(model)) {
+      models.push(model);
+    }
+  }
+  return models;
+}
+
+function normalizeCustomImageModels(value: unknown): string[] {
+  return normalizeImageModelList(value).filter((model) => !DEFAULT_IMAGE_MODELS.includes(model));
+}
+
 function normalizeProxyRuntime(value: unknown): ProxyRuntimeSettings {
   const source = typeof value === "object" && value !== null ? value as Partial<ProxyRuntimeSettings> : {};
   const clearanceSource = typeof source.clearance === "object" && source.clearance !== null
@@ -122,6 +144,7 @@ function normalizeThirdPartyApps(value: unknown): ThirdPartyAppsSettings {
 }
 
 function normalizeConfig(config: SettingsConfig): SettingsConfig {
+  const customImageModels = normalizeCustomImageModels(config.custom_image_models ?? config.image_models);
   const imageStorage = typeof config.image_storage === "object" && config.image_storage
     ? config.image_storage as ImageStorageSettings
     : {
@@ -169,6 +192,11 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     image_retention_days: Number(config.image_retention_days || 30),
     image_poll_timeout_secs: Number(config.image_poll_timeout_secs || 120),
     image_account_concurrency: Number(config.image_account_concurrency || 3),
+    custom_image_models: customImageModels,
+    image_models: [
+      ...DEFAULT_IMAGE_MODELS,
+      ...customImageModels,
+    ],
     image_settle_enabled: Boolean(config.image_settle_enabled !== false),
     image_check_before_hit_enabled: Boolean(config.image_check_before_hit_enabled !== false),
     image_remove_conversation_after_result: Boolean(config.image_remove_conversation_after_result),
@@ -289,6 +317,7 @@ type SettingsStore = {
   setImageRetentionDays: (value: string) => void;
   setImagePollTimeoutSecs: (value: string) => void;
   setImageAccountConcurrency: (value: string) => void;
+  setCustomImageModelsText: (value: string) => void;
   setImageSettleEnabled: (value: boolean) => void;
   setImageCheckBeforeHitEnabled: (value: boolean) => void;
   setImageRemoveConversationAfterResult: (value: boolean) => void;
@@ -414,6 +443,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         image_retention_days: Math.max(1, Number(config.image_retention_days) || 30),
         image_poll_timeout_secs: Math.max(1, Number(config.image_poll_timeout_secs) || 120),
         image_account_concurrency: Math.max(1, Number(config.image_account_concurrency) || 3),
+        custom_image_models: normalizeCustomImageModels(config.custom_image_models),
         image_settle_enabled: Boolean(config.image_settle_enabled !== false),
         image_check_before_hit_enabled: Boolean(config.image_check_before_hit_enabled !== false),
         image_remove_conversation_after_result: Boolean(config.image_remove_conversation_after_result),
@@ -518,6 +548,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setImageAccountConcurrency: (value) => {
     set((state) => state.config ? { config: { ...state.config, image_account_concurrency: value } } : {});
+  },
+
+  setCustomImageModelsText: (value) => {
+    set((state) => state.config ? { config: { ...state.config, custom_image_models: value.split("\n") } } : {});
   },
 
   setImageSettleEnabled: (value) => {

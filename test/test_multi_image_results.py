@@ -75,6 +75,9 @@ class MultiImageResultTests(unittest.TestCase):
         backend = OpenAIBackendAPI.__new__(OpenAIBackendAPI)
 
         self.assertEqual(backend._image_model_slug("gpt-image-2"), "gpt-5-5-thinking")
+        self.assertEqual(backend._image_model_slug("gpt-5-5-thinking"), "gpt-5-5-thinking")
+        self.assertEqual(backend._image_model_slug("gpt-5-5"), "gpt-5-5")
+        self.assertEqual(backend._image_model_slug("gpt-5-3"), "gpt-5-3")
         self.assertEqual(backend._image_model_slug("codex-gpt-image-2"), "codex-gpt-image-2")
         self.assertEqual(backend._image_model_slug("unknown-image-model"), "auto")
 

@@ -19,6 +19,7 @@ export function ConfigCard() {
   const [isTestingProxy, setIsTestingProxy] = useState(false);
   const [proxyTestResult, setProxyTestResult] = useState<ProxyTestResult | null>(null);
   const logLevelOptions = ["debug", "info", "warning", "error"];
+  const builtinImageModels = ["gpt-image-2", "gpt-5-5-thinking", "gpt-5-5", "gpt-5-3"];
   const config = useSettingsStore((state) => state.config);
   const isLoadingConfig = useSettingsStore((state) => state.isLoadingConfig);
   const isSavingConfig = useSettingsStore((state) => state.isSavingConfig);
@@ -26,6 +27,7 @@ export function ConfigCard() {
   const setImageRetentionDays = useSettingsStore((state) => state.setImageRetentionDays);
   const setImagePollTimeoutSecs = useSettingsStore((state) => state.setImagePollTimeoutSecs);
   const setImageAccountConcurrency = useSettingsStore((state) => state.setImageAccountConcurrency);
+  const setCustomImageModelsText = useSettingsStore((state) => state.setCustomImageModelsText);
   const setImageSettleEnabled = useSettingsStore((state) => state.setImageSettleEnabled);
   const setImageRemoveConversationAfterResult = useSettingsStore((state) => state.setImageRemoveConversationAfterResult);
   const setImageSettleSecs = useSettingsStore((state) => state.setImageSettleSecs);
@@ -175,6 +177,25 @@ export function ConfigCard() {
               className="h-10 rounded-xl border-stone-200 bg-white"
             />
             <p className="text-xs text-stone-500">限制每个账号同时处理的图片请求数量，默认 3。</p>
+          </div>
+          <div className="space-y-3 rounded-xl border border-stone-200 bg-white px-4 py-3 md:col-span-2">
+            <div>
+              <label className="text-sm text-stone-700">生图模型</label>
+              <p className="mt-1 text-xs text-stone-500">内置模型会自动出现在图片生成页；自定义版本一行一个。</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {builtinImageModels.map((model) => (
+                <span key={model} className="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-700">
+                  {model}
+                </span>
+              ))}
+            </div>
+            <Textarea
+              value={(config?.custom_image_models || []).join("\n")}
+              onChange={(event) => setCustomImageModelsText(event.target.value)}
+              placeholder="custom-image-version"
+              className="min-h-20 rounded-xl border-stone-200 bg-white font-mono text-xs shadow-none"
+            />
           </div>
           <div className="space-y-2">
             <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
