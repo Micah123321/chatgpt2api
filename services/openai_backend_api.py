@@ -4,6 +4,7 @@ import mimetypes
 import os
 import random
 import re
+import threading
 import time
 
 import urllib.error
@@ -39,6 +40,11 @@ class ImagePollTimeoutError(RuntimeError):
 
 class ImageContentPolicyError(RuntimeError):
     """Raised when image generation is blocked by content policy moderation."""
+    pass
+
+
+class ImageStreamHardTimeoutError(RuntimeError):
+    """Raised when an image SSE stream exceeds its wall-clock hard limit."""
     pass
 
 
@@ -266,6 +272,15 @@ class OpenAIBackendAPI:
 
     def _image_request_timeout_secs(self) -> float:
         return self._deadline_timeout_secs(float(config.image_poll_timeout_secs))
+
+    def _image_stream_hard_cap_secs(self) -> float:
+        deadline = self._active_request_deadline()
+        if deadline is None:
+            return float(config.image_poll_timeout_secs)
+        try:
+            return max(0.001, float(deadline) - time.monotonic())
+        except (TypeError, ValueError):
+            return float(config.image_poll_timeout_secs)
 
     def _image_timeout_message(self) -> str:
         return (
@@ -2716,14 +2731,57 @@ class OpenAIBackendAPI:
         self._report_progress("starting_generation")
         response = self._start_image_generation(prompt, requirements, conduit_token, model, references)
         self._report_progress("generating")
+        yield from self._iter_sse_payloads_capped(response, self._image_stream_hard_cap_secs())
+
+    def _iter_sse_payloads_capped(self, response: Any, hard_cap_secs: float) -> Iterator[str]:
+        """Consume an image SSE stream with a wall-clock cap and forced-close fallback."""
         try:
-            yield from iter_sse_payloads(
+            normalized_cap = max(0.001, float(hard_cap_secs))
+        except (TypeError, ValueError):
+            normalized_cap = float(config.image_poll_timeout_secs)
+        deadline = time.monotonic() + normalized_cap
+        forced_close = threading.Event()
+
+        def close_blocked_stream() -> None:
+            forced_close.set()
+            try:
+                response.close()
+            except Exception:
+                pass
+
+        watchdog = threading.Timer(normalized_cap, close_blocked_stream)
+        watchdog.daemon = True
+        watchdog.start()
+        timeout_message = (
+            f"图片生成流已超过硬上限 {normalized_cap:g} 秒，"
+            "已强制中断（上游可能未生成图片）"
+        )
+        try:
+            for payload in iter_sse_payloads(
                 response,
-                deadline=getattr(self, "image_request_deadline", None),
-                timeout_message=self._image_timeout_message(),
-            )
+                deadline=deadline,
+                timeout_message=timeout_message,
+            ):
+                if forced_close.is_set() or time.monotonic() >= deadline:
+                    raise ImageStreamHardTimeoutError(timeout_message)
+                yield payload
+            if forced_close.is_set() or time.monotonic() >= deadline:
+                raise ImageStreamHardTimeoutError(timeout_message)
+        except ImageStreamHardTimeoutError:
+            raise
+        except TimeoutError as exc:
+            raise ImageStreamHardTimeoutError(timeout_message) from exc
+        except Exception as exc:
+            if forced_close.is_set() or time.monotonic() >= deadline:
+                raise ImageStreamHardTimeoutError(timeout_message) from exc
+            raise
         finally:
-            self._close_stream_response(response)
+            watchdog.cancel()
+            if not forced_close.is_set():
+                try:
+                    self._close_stream_response(response)
+                except Exception:
+                    pass
 
     def _bootstrap(self) -> None:
         """预热首页，并提取 PoW 相关脚本引用。"""

@@ -345,25 +345,57 @@ class MultiImageResultTests(unittest.TestCase):
         self.assertEqual(images, [b"image"])
         self.assertEqual(backend.session.get.call_args.kwargs["timeout"], 5.0)
 
-    def test_picture_conversation_passes_deadline_to_sse_payload_iterator(self) -> None:
+    def test_picture_conversation_uses_remaining_budget_for_hard_sse_cap(self) -> None:
         backend = OpenAIBackendAPI.__new__(OpenAIBackendAPI)
         backend.access_token = "token"
-        backend.image_request_deadline = 123.0
+        backend.image_request_deadline = 100.25
         backend.progress_callback = None
         backend._upload_image = mock.Mock()
         backend._bootstrap = mock.Mock()
         backend._get_chat_requirements = mock.Mock(return_value=mock.Mock(token="token", proof_token="", turnstile_token="", so_token=""))
         backend._prepare_image_conversation = mock.Mock(return_value="conduit")
         response = mock.Mock()
-        response._stream_closed = False
-        response.close = mock.Mock()
         backend._start_image_generation = mock.Mock(return_value=response)
+        backend._iter_sse_payloads_capped = mock.Mock(return_value=iter(["[DONE]"]))
 
-        with mock.patch("services.openai_backend_api.iter_sse_payloads", return_value=iter(["[DONE]"])) as iter_payloads:
+        with mock.patch("services.openai_backend_api.time.monotonic", return_value=100.0):
             list(backend._stream_picture_conversation("draw", "gpt-image-2", []))
 
-        self.assertEqual(iter_payloads.call_args.kwargs["deadline"], 123.0)
-        self.assertIn("ChatGPT 生图超时", iter_payloads.call_args.kwargs["timeout_message"])
+        backend._iter_sse_payloads_capped.assert_called_once_with(response, 0.25)
+
+    def test_capped_image_sse_stream_converts_watchdog_close_error_to_hard_timeout(self) -> None:
+        backend = OpenAIBackendAPI.__new__(OpenAIBackendAPI)
+        response = mock.Mock()
+        response.close = mock.Mock()
+        timers = []
+
+        class ImmediateTimer:
+            def __init__(self, interval, callback):
+                self.interval = interval
+                self.callback = callback
+                self.daemon = False
+                self.cancelled = False
+                timers.append(self)
+
+            def start(self):
+                self.callback()
+
+            def cancel(self):
+                self.cancelled = True
+
+        with (
+            mock.patch("services.openai_backend_api.threading.Timer", ImmediateTimer),
+            mock.patch("services.openai_backend_api.iter_sse_payloads", side_effect=RuntimeError("stream closed")),
+            mock.patch("services.openai_backend_api.time.monotonic", side_effect=[100.0, 100.6]),
+        ):
+            with self.assertRaises(RuntimeError) as raised:
+                list(backend._iter_sse_payloads_capped(response, 0.5))
+
+        self.assertEqual(raised.exception.__class__.__name__, "ImageStreamHardTimeoutError")
+        self.assertIn("硬上限", str(raised.exception))
+        self.assertEqual(timers[0].interval, 0.5)
+        self.assertTrue(timers[0].daemon)
+        self.assertTrue(timers[0].cancelled)
         response.close.assert_called_once()
 
     def test_image_poll_timeout_retry_stops_when_configured_budget_is_exhausted(self) -> None:
