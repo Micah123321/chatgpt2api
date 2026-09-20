@@ -21,34 +21,6 @@ type ImageDrawingDialogProps = {
 
 type Point = { x: number; y: number };
 export const ANNOTATION_OVERLAY_COLOR = "rgba(39, 39, 42, 0.14)";
-export const ANNOTATION_HATCH_DARK_COLOR = "rgba(24, 24, 27, 0.72)";
-export const ANNOTATION_HATCH_LIGHT_COLOR = "rgba(255, 255, 255, 0.88)";
-
-function drawAnnotationHatch(
-  context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-) {
-  const scale = Math.max(1, Math.min(width, height) / 768);
-  const spacing = 14 * scale;
-  const highlightOffset = 2 * scale;
-
-  context.lineCap = "butt";
-  context.lineWidth = 1.35 * scale;
-
-  const drawLines = (color: string, offset: number) => {
-    context.strokeStyle = color;
-    context.beginPath();
-    for (let diagonal = -height + offset; diagonal <= width; diagonal += spacing) {
-      context.moveTo(diagonal, 0);
-      context.lineTo(diagonal + height, height);
-    }
-    context.stroke();
-  };
-
-  drawLines(ANNOTATION_HATCH_DARK_COLOR, 0);
-  drawLines(ANNOTATION_HATCH_LIGHT_COLOR, highlightOffset);
-}
 
 function drawAnnotationInsetOutline(
   context: CanvasRenderingContext2D,
@@ -90,7 +62,6 @@ export function renderAnnotationOverlay(
   visibleContext.globalCompositeOperation = "source-over";
   visibleContext.fillStyle = ANNOTATION_OVERLAY_COLOR;
   visibleContext.fillRect(0, 0, width, height);
-  drawAnnotationHatch(visibleContext, width, height);
   drawAnnotationInsetOutline(visibleContext, maskCanvas, width, height);
   visibleContext.globalCompositeOperation = "destination-out";
   visibleContext.drawImage(maskCanvas, 0, 0, width, height);
@@ -245,7 +216,7 @@ export function ImageDrawingDialog({ mode, open, source, onOpenChange, onApply }
           <DialogTitle>{mode === "annotate" ? "标注要修改的区域" : "绘制草图"}</DialogTitle>
           <DialogDescription>
             {mode === "annotate"
-              ? "涂抹需要修改的位置，灰色斜纹区域会被修改；应用后在输入框描述修改内容。"
+              ? "涂抹需要修改的位置，灰色区域会被修改；应用后在输入框描述修改内容。"
               : "画出大致布局或轮廓，应用后再描述希望生成的完整画面。"}
           </DialogDescription>
         </DialogHeader>
