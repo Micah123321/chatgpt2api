@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
-import { Clock3, Download, EyeOff, LoaderCircle, RotateCcw, Sparkles, Trash2 } from "lucide-react";
+import { Brush, Clock3, Download, EyeOff, LoaderCircle, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,7 @@ type ImageResultsProps = {
   selectedConversation: ImageConversation | null;
   onOpenLightbox: (images: ImageLightboxItem[], index: number) => void;
   onContinueEdit: (conversationId: string, image: StoredImage | StoredReferenceImage) => void;
+  onAnnotateImage: (conversationId: string, image: StoredImage, source: string) => void;
   onDeletePrompt: (conversationId: string, turnId: string) => void;
   onDeleteResults: (conversationId: string, turnId: string) => void;
   onReuseTurnConfig: (conversationId: string, turnId: string) => void | Promise<void>;
@@ -88,6 +89,7 @@ export function ImageResults({
   selectedConversation,
   onOpenLightbox,
   onContinueEdit,
+  onAnnotateImage,
   onDeletePrompt,
   onDeleteResults,
   onReuseTurnConfig,
@@ -239,6 +241,7 @@ export function ImageResults({
 
                   <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px] text-stone-500 sm:mb-4 sm:gap-2 sm:text-xs">
                     <span className="rounded-full bg-stone-100 px-3 py-1">{turn.count} 张</span>
+                    <span className="rounded-full bg-stone-100 px-3 py-1">{turn.model}</span>
                     <span className="rounded-full bg-stone-100 px-3 py-1">{getTurnStatusLabel(turn.status)}</span>
                     {turn.status === "queued" ? (
                       <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-700">等待当前对话中的前序任务完成</span>
@@ -279,6 +282,16 @@ export function ImageResults({
                                 {imageMeta ? <span className="block text-stone-400">{imageMeta}</span> : null}
                               </div>
                               <div className="flex items-center gap-1.5">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 w-7 rounded-full border-stone-200 bg-white px-0 text-[10px] text-stone-700 hover:bg-stone-50 sm:h-8 sm:w-fit sm:px-3 sm:text-xs"
+                                  onClick={() => onAnnotateImage(selectedConversation.id, image, imageSrc)}
+                                  aria-label="标注编辑"
+                                >
+                                  <Brush className="size-3 sm:size-4" />
+                                  <span className="hidden sm:inline">标注编辑</span>
+                                </Button>
                                 <Button
                                   variant="outline"
                                   size="sm"

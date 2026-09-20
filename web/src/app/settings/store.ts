@@ -66,7 +66,15 @@ const DEFAULT_THIRD_PARTY_APPS: ThirdPartyAppsSettings = {
   },
 };
 
-const DEFAULT_IMAGE_MODELS = ["gpt-image-2", "gpt-5-5-thinking", "gpt-5-5", "gpt-5-3"];
+const DEFAULT_IMAGE_MODELS = [
+  "gpt-image-2.5-sunburst",
+  "gpt-image-2.5-flare",
+  "gpt-image-2",
+  "gpt-5-5-thinking",
+  "gpt-5-5",
+  "gpt-5-3",
+];
+const DEFAULT_IMAGE_MODEL = "gpt-image-2";
 
 function normalizeImageModelList(value: unknown): string[] {
   const entries = typeof value === "string"
@@ -82,10 +90,6 @@ function normalizeImageModelList(value: unknown): string[] {
     }
   }
   return models;
-}
-
-function normalizeCustomImageModels(value: unknown): string[] {
-  return normalizeImageModelList(value).filter((model) => !DEFAULT_IMAGE_MODELS.includes(model));
 }
 
 function normalizeProxyRuntime(value: unknown): ProxyRuntimeSettings {
@@ -144,7 +148,9 @@ function normalizeThirdPartyApps(value: unknown): ThirdPartyAppsSettings {
 }
 
 function normalizeConfig(config: SettingsConfig): SettingsConfig {
-  const customImageModels = normalizeCustomImageModels(config.custom_image_models ?? config.image_models);
+  const configuredImageModels = normalizeImageModelList(config.image_models);
+  const imageModels = configuredImageModels.length > 0 ? configuredImageModels : DEFAULT_IMAGE_MODELS;
+  const requestedDefaultImageModel = String(config.default_image_model || DEFAULT_IMAGE_MODEL).trim().toLowerCase();
   const imageStorage = typeof config.image_storage === "object" && config.image_storage
     ? config.image_storage as ImageStorageSettings
     : {
@@ -192,11 +198,11 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     image_retention_days: Number(config.image_retention_days || 30),
     image_poll_timeout_secs: Number(config.image_poll_timeout_secs || 120),
     image_account_concurrency: Number(config.image_account_concurrency || 3),
-    custom_image_models: customImageModels,
-    image_models: [
-      ...DEFAULT_IMAGE_MODELS,
-      ...customImageModels,
-    ],
+    default_image_model: imageModels.includes(requestedDefaultImageModel)
+      ? requestedDefaultImageModel
+      : DEFAULT_IMAGE_MODEL,
+    custom_image_models: [],
+    image_models: imageModels,
     image_settle_enabled: Boolean(config.image_settle_enabled !== false),
     image_check_before_hit_enabled: Boolean(config.image_check_before_hit_enabled !== false),
     image_remove_conversation_after_result: Boolean(config.image_remove_conversation_after_result),
@@ -317,7 +323,7 @@ type SettingsStore = {
   setImageRetentionDays: (value: string) => void;
   setImagePollTimeoutSecs: (value: string) => void;
   setImageAccountConcurrency: (value: string) => void;
-  setCustomImageModelsText: (value: string) => void;
+  setDefaultImageModel: (value: string) => void;
   setImageSettleEnabled: (value: boolean) => void;
   setImageCheckBeforeHitEnabled: (value: boolean) => void;
   setImageRemoveConversationAfterResult: (value: boolean) => void;
@@ -443,7 +449,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         image_retention_days: Math.max(1, Number(config.image_retention_days) || 30),
         image_poll_timeout_secs: Math.max(1, Number(config.image_poll_timeout_secs) || 120),
         image_account_concurrency: Math.max(1, Number(config.image_account_concurrency) || 3),
-        custom_image_models: normalizeCustomImageModels(config.custom_image_models),
+        default_image_model: String(config.default_image_model || DEFAULT_IMAGE_MODEL).trim().toLowerCase(),
         image_settle_enabled: Boolean(config.image_settle_enabled !== false),
         image_check_before_hit_enabled: Boolean(config.image_check_before_hit_enabled !== false),
         image_remove_conversation_after_result: Boolean(config.image_remove_conversation_after_result),
@@ -550,8 +556,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set((state) => state.config ? { config: { ...state.config, image_account_concurrency: value } } : {});
   },
 
-  setCustomImageModelsText: (value) => {
-    set((state) => state.config ? { config: { ...state.config, custom_image_models: value.split("\n") } } : {});
+  setDefaultImageModel: (value) => {
+    set((state) => state.config ? { config: { ...state.config, default_image_model: value } } : {});
   },
 
   setImageSettleEnabled: (value) => {

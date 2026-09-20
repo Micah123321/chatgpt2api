@@ -31,20 +31,19 @@ def _upsert_dynamic_model(data: list[Any], seen: set[str], model: str) -> None:
 def list_models() -> dict[str, Any]:
     backend = OpenAIBackendAPI()
     try:
-        result = backend.list_models()
+        try:
+            result = backend.list_models()
+        except Exception:
+            result = {"object": "list", "data": []}
     finally:
         backend.close()
+    result["default_image_model"] = config.default_image_model
     data = result.get("data")
     if not isinstance(data, list):
         return result
     seen = {str(item.get("id") or "").strip() for item in data if isinstance(item, dict)}
     dynamic_models: set[str] = set()
     accounts = account_service.list_accounts()
-    web_image_accounts = [
-        account
-        for account in accounts
-        if isinstance(account, dict)
-    ]
     codex_types = {
         normalized
         for account in accounts
@@ -53,8 +52,7 @@ def list_models() -> dict[str, Any]:
            and (normalized := account_service._normalize_account_type(account.get("type")))
     }
 
-    if web_image_accounts:
-        dynamic_models.update(config.image_models)
+    dynamic_models.update(config.image_models)
     if codex_types & {"Plus", "Team", "Pro"}:
         dynamic_models.add(CODEX_IMAGE_MODEL)
     if "Plus" in codex_types:

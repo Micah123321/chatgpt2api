@@ -11,15 +11,16 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { ImageStorageMode } from "@/lib/api";
-import { testProxy, type ProxyTestResult } from "@/lib/api";
+import { refreshImageModelCatalog, testProxy, type ProxyTestResult } from "@/lib/api";
 
 import { useSettingsStore } from "../store";
 
 export function ConfigCard() {
   const [isTestingProxy, setIsTestingProxy] = useState(false);
   const [proxyTestResult, setProxyTestResult] = useState<ProxyTestResult | null>(null);
+  const [isRefreshingImageModels, setIsRefreshingImageModels] = useState(false);
   const logLevelOptions = ["debug", "info", "warning", "error"];
-  const builtinImageModels = ["gpt-image-2", "gpt-5-5-thinking", "gpt-5-5", "gpt-5-3"];
+  const fallbackImageModels = ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2"];
   const config = useSettingsStore((state) => state.config);
   const isLoadingConfig = useSettingsStore((state) => state.isLoadingConfig);
   const isSavingConfig = useSettingsStore((state) => state.isSavingConfig);
@@ -27,7 +28,7 @@ export function ConfigCard() {
   const setImageRetentionDays = useSettingsStore((state) => state.setImageRetentionDays);
   const setImagePollTimeoutSecs = useSettingsStore((state) => state.setImagePollTimeoutSecs);
   const setImageAccountConcurrency = useSettingsStore((state) => state.setImageAccountConcurrency);
-  const setCustomImageModelsText = useSettingsStore((state) => state.setCustomImageModelsText);
+  const setDefaultImageModel = useSettingsStore((state) => state.setDefaultImageModel);
   const setImageSettleEnabled = useSettingsStore((state) => state.setImageSettleEnabled);
   const setImageRemoveConversationAfterResult = useSettingsStore((state) => state.setImageRemoveConversationAfterResult);
   const setImageSettleSecs = useSettingsStore((state) => state.setImageSettleSecs);
@@ -47,6 +48,30 @@ export function ConfigCard() {
   const isTestingImageStorage = useSettingsStore((state) => state.isTestingImageStorage);
   const isSyncingImageStorage = useSettingsStore((state) => state.isSyncingImageStorage);
   const saveConfig = useSettingsStore((state) => state.saveConfig);
+  const loadConfig = useSettingsStore((state) => state.loadConfig);
+
+  const availableImageModels = config?.image_models || fallbackImageModels;
+
+  const handleSaveImageModels = async () => {
+    await saveConfig();
+  };
+
+  const handleRefreshImageModels = async () => {
+    setIsRefreshingImageModels(true);
+    try {
+      const result = await refreshImageModelCatalog();
+      await loadConfig();
+      if (result.refreshed) {
+        toast.success(`已从上游更新 ${result.models.length} 个生图模型`);
+      } else {
+        toast.warning(`拉取失败，继续使用已缓存列表：${result.error || "未知错误"}`);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "拉取生图模型失败");
+    } finally {
+      setIsRefreshingImageModels(false);
+    }
+  };
 
   const handleTestProxy = async () => {
     const candidate = String(config?.proxy || "").trim();
@@ -178,24 +203,65 @@ export function ConfigCard() {
             />
             <p className="text-xs text-stone-500">限制每个账号同时处理的图片请求数量，默认 3。</p>
           </div>
-          <div className="space-y-3 rounded-xl border border-stone-200 bg-white px-4 py-3 md:col-span-2">
-            <div>
-              <label className="text-sm text-stone-700">生图模型</label>
-              <p className="mt-1 text-xs text-stone-500">内置模型会自动出现在图片生成页；自定义版本一行一个。</p>
+          <div className="space-y-4 rounded-xl border border-stone-200 bg-white px-4 py-4 md:col-span-2">
+            <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+              <div>
+                <label className="text-sm font-medium text-stone-800">生图模型</label>
+                <p className="mt-1 text-xs leading-5 text-stone-500">从 ChatGPT 官方上游拉取模型；失败时继续使用最近成功列表或内置回退列表。</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-lg border-stone-200 bg-white px-3 text-stone-700"
+                  onClick={() => void handleRefreshImageModels()}
+                  disabled={isRefreshingImageModels}
+                >
+                  <RefreshCw className={`size-4 ${isRefreshingImageModels ? "animate-spin" : ""}`} />
+                  拉取最新列表
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-lg border-stone-200 bg-white px-3 text-stone-700"
+                  onClick={() => void handleSaveImageModels()}
+                  disabled={isSavingConfig}
+                >
+                  {isSavingConfig ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}
+                  保存全局模型
+                </Button>
+              </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">当前使用模型</label>
+                <Select
+                  value={String(config?.default_image_model || "gpt-image-2")}
+                  onValueChange={setDefaultImageModel}
+                >
+                  <SelectTrigger className="h-10 w-full rounded-xl border-stone-200 bg-white">
+                    <SelectValue placeholder="选择默认模型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableImageModels.map((model) => (
+                      <SelectItem key={model} value={model}>{model}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs leading-5 text-stone-500">网页生图与省略 model 的图片 API 请求默认使用此模型。</p>
+              </div>
+              <div className="space-y-1 text-xs leading-5 text-stone-500 md:text-right">
+                <p>来源：{config?.image_models_source === "upstream" ? "官方上游" : "历史回退列表"}</p>
+                <p>{config?.image_models_updated_at ? `更新时间：${new Date(config.image_models_updated_at).toLocaleString("zh-CN")}` : "尚未成功拉取"}</p>
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              {builtinImageModels.map((model) => (
+              {availableImageModels.map((model) => (
                 <span key={model} className="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-700">
                   {model}
                 </span>
               ))}
             </div>
-            <Textarea
-              value={(config?.custom_image_models || []).join("\n")}
-              onChange={(event) => setCustomImageModelsText(event.target.value)}
-              placeholder="custom-image-version"
-              className="min-h-20 rounded-xl border-stone-200 bg-white font-mono text-xs shadow-none"
-            />
           </div>
           <div className="space-y-2">
             <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">

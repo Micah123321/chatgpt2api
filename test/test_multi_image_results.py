@@ -16,9 +16,10 @@ from services.protocol.conversation import (
     extract_conversation_ids,
     is_tls_connection_error,
     stream_image_outputs,
+    stream_image_outputs_with_pool,
 )
 from services.protocol.openai_v1_response import stream_image_response
-from utils.helper import iter_sse_payloads
+from utils.helper import UpstreamHTTPError, iter_sse_payloads
 
 
 PNG_BYTES = base64.b64decode(
@@ -80,6 +81,21 @@ class MultiImageResultTests(unittest.TestCase):
         self.assertEqual(backend._image_model_slug("gpt-5-3"), "gpt-5-3")
         self.assertEqual(backend._image_model_slug("codex-gpt-image-2"), "codex-gpt-image-2")
         self.assertEqual(backend._image_model_slug("unknown-image-model"), "auto")
+
+    def test_reference_image_count_does_not_increase_generation_concurrency(self) -> None:
+        request = ConversationRequest(
+            model="gpt-image-2",
+            prompt="combine",
+            images=["image-1", "image-2", "image-3"],
+            n=1,
+        )
+        with mock.patch(
+            "services.protocol.conversation._generate_single_image",
+            return_value=[],
+        ) as generate:
+            list(stream_image_outputs_with_pool(request))
+
+        generate.assert_called_once_with(request, 1, 1)
 
     def test_stream_id_extractor_keeps_full_file_ids(self) -> None:
         payload = (
@@ -287,6 +303,47 @@ class MultiImageResultTests(unittest.TestCase):
         self.assertEqual(meta["file_id"], "file-1")
         self.assertEqual([call.kwargs["timeout"] for call in backend.session.post.call_args_list], [5.0, 5.0])
         self.assertEqual(backend.session.put.call_args.kwargs["timeout"], 5.0)
+
+    def test_image_file_creation_retries_concurrency_throttle(self) -> None:
+        backend = OpenAIBackendAPI.__new__(OpenAIBackendAPI)
+        backend.base_url = "https://chatgpt.test"
+        backend.user_agent = "ua"
+        backend.session = mock.Mock()
+        backend._headers = mock.Mock(return_value={})
+        throttled_response = mock.Mock(status_code=503, headers={})
+        throttled_response.json.return_value = {
+            "error": "Too many concurrent requests",
+            "detail": {"code": "throttled", "source": "concurrency_limit"},
+        }
+        create_response = mock.Mock(status_code=200)
+        create_response.json.return_value = {"file_id": "file-1", "upload_url": "https://upload.test/blob"}
+        uploaded_response = mock.Mock(status_code=200)
+        put_response = mock.Mock(status_code=200)
+        backend.session.post.side_effect = [throttled_response, create_response, uploaded_response]
+        backend.session.put.return_value = put_response
+        backend._sleep_with_request_deadline = mock.Mock()
+
+        meta = backend._upload_image(f"data:image/png;base64,{base64.b64encode(PNG_BYTES).decode('ascii')}")
+
+        self.assertEqual(meta["file_id"], "file-1")
+        self.assertEqual(backend.session.post.call_count, 3)
+        backend._sleep_with_request_deadline.assert_called_once()
+
+    def test_image_file_creation_does_not_retry_unrelated_503(self) -> None:
+        backend = OpenAIBackendAPI.__new__(OpenAIBackendAPI)
+        backend.base_url = "https://chatgpt.test"
+        backend.user_agent = "ua"
+        backend.session = mock.Mock()
+        backend._headers = mock.Mock(return_value={})
+        response = mock.Mock(status_code=503, headers={})
+        response.json.return_value = {"error": "service unavailable"}
+        backend.session.post.return_value = response
+        backend._sleep_with_request_deadline = mock.Mock()
+
+        with self.assertRaises(UpstreamHTTPError):
+            backend._upload_image(f"data:image/png;base64,{base64.b64encode(PNG_BYTES).decode('ascii')}")
+
+        backend._sleep_with_request_deadline.assert_not_called()
 
     def test_chat_requirements_keep_default_timeouts_without_image_deadline(self) -> None:
         backend = OpenAIBackendAPI.__new__(OpenAIBackendAPI)

@@ -64,6 +64,8 @@ DEFAULT_POW_SCRIPT = "https://chatgpt.com/backend-api/sentinel/sdk.js"
 CODEX_IMAGE_MODEL = "codex-gpt-image-2"
 CODEX_RESPONSES_MODEL = "gpt-5.5"
 TEXT_STREAM_TIMEOUT_SECS = 300.0
+IMAGE_FILE_THROTTLE_RETRIES = 3
+IMAGE_FILE_THROTTLE_BACKOFF_SECS = (1.0, 2.0, 4.0)
 SEARCH_MODEL = "gpt-5-5"
 SEARCH_TIMEOUT_SECS = 300.0
 SEARCH_POLL_INTERVAL_SECS = 3.0
@@ -265,6 +267,44 @@ class OpenAIBackendAPI:
             sleep_for = min(sleep_for, max(0.0, deadline - time.monotonic()))
         if sleep_for > 0:
             time.sleep(sleep_for)
+
+    @staticmethod
+    def _is_image_file_concurrency_error(error: UpstreamHTTPError) -> bool:
+        """判断文件服务是否因账号并发限制暂时拒绝请求。"""
+        if error.status_code not in {429, 503}:
+            return False
+        body = error.body
+        try:
+            body_text = json.dumps(body, ensure_ascii=False) if isinstance(body, (dict, list)) else str(body)
+        except (TypeError, ValueError):
+            body_text = repr(body)
+        text = body_text.lower()
+        return "concurrency_limit" in text or "too many concurrent" in text or "throttled" in text
+
+    def _post_image_file_request(self, path: str, **kwargs: Any) -> requests.Response:
+        """请求图片文件服务，并在账号并发限流时做有界退避。"""
+        for attempt in range(IMAGE_FILE_THROTTLE_RETRIES + 1):
+            response = self.session.post(self.base_url + path, **kwargs)
+            try:
+                ensure_ok(response, path)
+                return response
+            except UpstreamHTTPError as exc:
+                if not self._is_image_file_concurrency_error(exc) or attempt >= IMAGE_FILE_THROTTLE_RETRIES:
+                    raise
+                retry_delay = exc.retry_after
+                if retry_delay is None:
+                    retry_delay = IMAGE_FILE_THROTTLE_BACKOFF_SECS[attempt]
+                logger.warning({
+                    "event": "image_file_concurrency_retry",
+                    "path": path,
+                    "attempt": attempt + 1,
+                    "wait_secs": retry_delay,
+                    "status_code": exc.status_code,
+                })
+                self._sleep_with_request_deadline(retry_delay)
+                if self._deadline_expired():
+                    raise
+        raise RuntimeError("unreachable image file request retry state")
 
     @staticmethod
     def _request_timeout_message(label: str, timeout_secs: float) -> str:
@@ -1013,8 +1053,8 @@ class OpenAIBackendAPI:
         width, height = image.size
         mime_type = Image.MIME.get(image.format, "image/png")
         path = "/backend-api/files"
-        response = self.session.post(
-            self.base_url + path,
+        response = self._post_image_file_request(
+            path,
             headers=self._headers(path, {"Content-Type": "application/json", "Accept": "application/json"}),
             json={"file_name": file_name, "file_size": len(data), "use_case": "multimodal", "width": width,
                   "height": height},
@@ -1039,8 +1079,8 @@ class OpenAIBackendAPI:
         )
         ensure_ok(response, "image_upload")
         path = f"/backend-api/files/{upload_meta['file_id']}/uploaded"
-        response = self.session.post(
-            self.base_url + path,
+        response = self._post_image_file_request(
+            path,
             headers=self._headers(path, {"Content-Type": "application/json", "Accept": "application/json"}),
             data="{}",
             timeout=self._deadline_timeout_secs(60),

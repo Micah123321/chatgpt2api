@@ -54,6 +54,7 @@ class AccountService:
         self._index = 0
         self._accounts = self._load_accounts()
         self._image_inflight: dict[str, int] = {}
+        self._image_cooldown_until: dict[str, float] = {}
         self._token_aliases: dict[str, str] = {}
         self._cumulative_total = self._load_cumulative_total()
 
@@ -423,6 +424,12 @@ class AccountService:
                 old_inflight = int(self._image_inflight.pop(old_token, 0))
                 if old_inflight:
                     self._image_inflight[new_token] = int(self._image_inflight.get(new_token, 0)) + old_inflight
+                old_cooldown = float(self._image_cooldown_until.pop(old_token, 0.0))
+                if old_cooldown:
+                    self._image_cooldown_until[new_token] = max(
+                        old_cooldown,
+                        float(self._image_cooldown_until.get(new_token, 0.0)),
+                    )
             self._accounts[new_token] = account
             self._save_accounts()
             self._image_slot_condition.notify_all()
@@ -913,10 +920,12 @@ class AccountService:
             plan_types: set[str] | tuple[str, ...] | None = None,
     ) -> list[str]:
         max_concurrency = max(1, int(config.image_account_concurrency or 1))
+        now = time.monotonic()
         return [
             token
             for token in self._list_ready_candidate_tokens(excluded_tokens, plan_type, source_type, plan_types)
             if int(self._image_inflight.get(token, 0)) < max_concurrency
+               and float(self._image_cooldown_until.get(token, 0.0)) <= now
         ]
 
     def _acquire_next_candidate_token(
@@ -1178,6 +1187,7 @@ class AccountService:
             removed = sum(self._accounts.pop(token, None) is not None for token in target_set)
             for token in target_set:
                 self._image_inflight.pop(token, None)
+                self._image_cooldown_until.pop(token, None)
             self._token_aliases = {
                 old: new
                 for old, new in self._token_aliases.items()
@@ -1278,10 +1288,23 @@ class AccountService:
                 return False
         return True
 
-    def mark_image_result(self, access_token: str, success: bool) -> dict | None:
+    def mark_image_result(
+        self,
+        access_token: str,
+        success: bool,
+        cooldown_secs: float = 0.0,
+    ) -> dict | None:
         if not access_token:
             return None
         self.release_image_slot(access_token)
+        if cooldown_secs > 0:
+            with self._image_slot_condition:
+                access_token = self._resolve_access_token_locked(access_token)
+                self._image_cooldown_until[access_token] = max(
+                    float(self._image_cooldown_until.get(access_token, 0.0)),
+                    time.monotonic() + float(cooldown_secs),
+                )
+                self._image_slot_condition.notify_all()
         with self._lock:
             access_token = self._resolve_access_token_locked(access_token)
             current = self._accounts.get(access_token)

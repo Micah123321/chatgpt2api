@@ -83,11 +83,14 @@ DEFAULT_THIRD_PARTY_APPS = {
 }
 
 DEFAULT_IMAGE_MODELS = [
+    "gpt-image-2.5-sunburst",
+    "gpt-image-2.5-flare",
     "gpt-image-2",
     "gpt-5-5-thinking",
     "gpt-5-5",
     "gpt-5-3",
 ]
+DEFAULT_IMAGE_MODEL = "gpt-image-2"
 
 
 def _normalize_bool(value: object, default: bool = False) -> bool:
@@ -133,8 +136,12 @@ def _normalize_custom_image_models(value: object) -> list[str]:
     return [model for model in _normalize_image_model_list(value) if model not in builtin]
 
 
-def _image_models_with_defaults(custom_models: object) -> list[str]:
-    return list(DEFAULT_IMAGE_MODELS) + _normalize_custom_image_models(custom_models)
+def _image_models_with_cache(cache: object, legacy_custom_models: object = None) -> list[str]:
+    cached = _normalize_image_model_list(cache)
+    if cached:
+        return cached
+    legacy = _normalize_custom_image_models(legacy_custom_models)
+    return list(DEFAULT_IMAGE_MODELS) + legacy
 
 
 def _normalize_backup_include(value: object) -> dict[str, bool]:
@@ -464,11 +471,30 @@ class ConfigStore:
 
     @property
     def custom_image_models(self) -> list[str]:
+        """兼容旧配置；新版本由自动拉取的 image_models_cache 管理模型列表。"""
         return _normalize_custom_image_models(self.data.get("custom_image_models"))
 
     @property
     def image_models(self) -> list[str]:
-        return _image_models_with_defaults(self.data.get("custom_image_models"))
+        return _image_models_with_cache(
+            self.data.get("image_models_cache"),
+            self.data.get("custom_image_models"),
+        )
+
+    @property
+    def image_models_source(self) -> str:
+        if _normalize_image_model_list(self.data.get("image_models_cache")):
+            return str(self.data.get("image_models_source") or "upstream").strip() or "upstream"
+        return "fallback"
+
+    @property
+    def image_models_updated_at(self) -> str:
+        return str(self.data.get("image_models_updated_at") or "").strip()
+
+    @property
+    def default_image_model(self) -> str:
+        model = str(self.data.get("default_image_model") or DEFAULT_IMAGE_MODEL).strip().lower()
+        return model if model in self.image_models else DEFAULT_IMAGE_MODEL
 
     @property
     def image_parallel_generation(self) -> bool:
@@ -605,6 +631,9 @@ class ConfigStore:
         data["image_account_concurrency"] = self.image_account_concurrency
         data["custom_image_models"] = self.custom_image_models
         data["image_models"] = self.image_models
+        data["image_models_source"] = self.image_models_source
+        data["image_models_updated_at"] = self.image_models_updated_at
+        data["default_image_model"] = self.default_image_model
         data["image_parallel_generation"] = self.image_parallel_generation
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts
@@ -647,13 +676,19 @@ class ConfigStore:
         incoming = dict(data or {})
         next_data = dict(self.data)
         next_data.update(incoming)
-        if "custom_image_models" in incoming:
-            next_data["custom_image_models"] = _normalize_custom_image_models(next_data.get("custom_image_models"))
-        elif "image_models" in incoming:
-            next_data["custom_image_models"] = _normalize_custom_image_models(next_data.get("image_models"))
-        elif "custom_image_models" in next_data:
+        if "image_models_cache" in incoming:
+            next_data["image_models_cache"] = _normalize_image_model_list(next_data.get("image_models_cache"))
+        if "custom_image_models" in next_data:
             next_data["custom_image_models"] = _normalize_custom_image_models(next_data.get("custom_image_models"))
         next_data.pop("image_models", None)
+        default_image_model = str(next_data.get("default_image_model") or DEFAULT_IMAGE_MODEL).strip().lower()
+        available_image_models = _image_models_with_cache(
+            next_data.get("image_models_cache"),
+            next_data.get("custom_image_models"),
+        )
+        next_data["default_image_model"] = (
+            default_image_model if default_image_model in available_image_models else DEFAULT_IMAGE_MODEL
+        )
         if "backup" in next_data:
             next_data["backup"] = _normalize_backup_settings(next_data.get("backup"))
         if "image_storage" in next_data:

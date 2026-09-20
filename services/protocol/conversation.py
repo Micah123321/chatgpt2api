@@ -14,13 +14,20 @@ import tiktoken
 from services.account_service import account_service
 from services.config import config
 from services.image_storage_service import image_storage_service
-from services.openai_backend_api import ImageContentPolicyError, ImagePollTimeoutError, OpenAIBackendAPI, TEXT_STREAM_TIMEOUT_SECS
+from services.openai_backend_api import (
+    ImageContentPolicyError,
+    ImagePollTimeoutError,
+    ImageStreamHardTimeoutError,
+    OpenAIBackendAPI,
+    TEXT_STREAM_TIMEOUT_SECS,
+)
 from utils.helper import (
     extract_image_from_message_content,
     is_codex_image_model,
     is_supported_image_model,
     split_image_model,
     supported_image_models,
+    UpstreamHTTPError,
 )
 from utils.image_tokens import count_image_content_tokens
 from utils.log import logger
@@ -115,6 +122,19 @@ def image_stream_error_message(message: str) -> str:
     if is_connection_timeout_error(text):
         return "upstream connection timed out, please retry later"
     return text or "image generation failed"
+
+
+def is_image_concurrency_error(error: BaseException) -> bool:
+    """识别文件服务返回的账号级并发限流错误。"""
+    if not isinstance(error, UpstreamHTTPError) or error.status_code not in {429, 503}:
+        return False
+    body = error.body
+    try:
+        body_text = json.dumps(body, ensure_ascii=False) if isinstance(body, (dict, list)) else str(body)
+    except (TypeError, ValueError):
+        body_text = repr(body)
+    text = body_text.lower()
+    return "concurrency_limit" in text or "too many concurrent" in text or "throttled" in text
 
 
 def _image_remaining_timeout_secs(backend: object) -> float:
@@ -1305,11 +1325,14 @@ def _generate_single_image(
     MAX_CONN_TIMEOUT_RETRIES = 3
     # 轮询超时错误最大重试次数（换账号重试）
     MAX_POLL_TIMEOUT_RETRIES = 4
+    # 文件服务并发限流最大重试次数（换账号重试）
+    MAX_CONCURRENCY_RETRIES = 3
 
     text_reply_retry_count = 0
     tls_retry_count = 0
     conn_timeout_retry_count = 0
     poll_timeout_retry_count = 0
+    concurrency_retry_count = 0
     account_email = ""
     request_deadline = time.monotonic() + float(config.image_poll_timeout_secs)
 
@@ -1474,7 +1497,10 @@ def _generate_single_image(
             })
             raise
         except Exception as exc:
-            account_service.mark_image_result(token, False)
+            cooldown_secs = float(config.image_timeout_retry_secs) if (
+                isinstance(exc, ImageStreamHardTimeoutError) or is_image_concurrency_error(exc)
+            ) else 0.0
+            account_service.mark_image_result(token, False, cooldown_secs=cooldown_secs)
             last_error = str(exc)
             logger.warning({
                 "event": "image_stream_fail",
@@ -1483,6 +1509,21 @@ def _generate_single_image(
                 "error": last_error,
                 "index": index,
             })
+            if not emitted_for_token and is_image_concurrency_error(exc):
+                concurrency_retry_count += 1
+                if concurrency_retry_count <= MAX_CONCURRENCY_RETRIES and request_deadline > time.monotonic():
+                    wait_secs = min(float(config.image_timeout_retry_secs), 10.0)
+                    logger.warning({
+                        "event": "image_stream_concurrency_retry",
+                        "request_token": token,
+                        "account_email": account_email,
+                        "retry_count": concurrency_retry_count,
+                        "index": index,
+                        "wait_secs": wait_secs,
+                        "error": last_error[:300],
+                    })
+                    _sleep_until_deadline(request_deadline, wait_secs)
+                    continue
             if not emitted_for_token and is_token_invalid_error(last_error):
                 refreshed_token = account_service.refresh_access_token(token, force=True, event="image_stream")
                 if refreshed_token and refreshed_token != token:

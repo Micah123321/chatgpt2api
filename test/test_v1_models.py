@@ -64,7 +64,9 @@ class ModelListTests(unittest.TestCase):
 
     def test_list_models_exposes_configured_web_image_versions(self):
         original_custom_models = openai_v1_models.config.data.get("custom_image_models")
+        original_default_model = openai_v1_models.config.data.get("default_image_model")
         openai_v1_models.config.data["custom_image_models"] = ["custom-image-v1"]
+        openai_v1_models.config.data["default_image_model"] = "custom-image-v1"
         try:
             with (
                 mock.patch.object(
@@ -96,6 +98,10 @@ class ModelListTests(unittest.TestCase):
                 openai_v1_models.config.data.pop("custom_image_models", None)
             else:
                 openai_v1_models.config.data["custom_image_models"] = original_custom_models
+            if original_default_model is None:
+                openai_v1_models.config.data.pop("default_image_model", None)
+            else:
+                openai_v1_models.config.data["default_image_model"] = original_default_model
 
         models_by_id = {item["id"]: item for item in result["data"]}
         self.assertIn("gpt-image-2", models_by_id)
@@ -104,6 +110,7 @@ class ModelListTests(unittest.TestCase):
         self.assertIn("gpt-5-3", models_by_id)
         self.assertIn("custom-image-v1", models_by_id)
         self.assertEqual(models_by_id["gpt-5-5"]["owned_by"], "chatgpt2api")
+        self.assertEqual(result["default_image_model"], "custom-image-v1")
 
     def test_list_models_function(self):
         """测试直接调用服务层获取模型列表。"""

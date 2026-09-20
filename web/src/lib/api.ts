@@ -65,6 +65,7 @@ type AccountListResponse = {
 type ModelListResponse = {
   object: string;
   data: Model[];
+  default_image_model?: string;
 };
 
 type AccountMutationResponse = {
@@ -167,8 +168,11 @@ export type SettingsConfig = {
   image_retention_days?: number | string;
   image_poll_timeout_secs?: number | string;
   image_account_concurrency?: number | string;
+  default_image_model?: string;
   custom_image_models?: string[];
   image_models?: string[];
+  image_models_source?: "upstream" | "fallback" | string;
+  image_models_updated_at?: string;
   image_parallel_generation?: boolean;
   image_settle_enabled?: boolean;
   image_check_before_hit_enabled?: boolean;
@@ -476,12 +480,17 @@ export async function createImageEditTask(
   model?: ImageModel,
   size?: string,
   quality = "auto",
+  masks?: File | File[],
 ) {
   const formData = new FormData();
   const uploadFiles = Array.isArray(files) ? files : [files];
 
   uploadFiles.forEach((file) => {
     formData.append("image", file);
+  });
+  const maskFiles = masks ? (Array.isArray(masks) ? masks : [masks]) : [];
+  maskFiles.forEach((file) => {
+    formData.append("mask", file);
   });
   formData.append("client_task_id", clientTaskId);
   formData.append("prompt", prompt);
@@ -523,6 +532,26 @@ export async function updateSettingsConfig(settings: SettingsConfig) {
   return httpRequest<{ config: SettingsConfig }>("/api/settings", {
     method: "POST",
     body: settings,
+  });
+}
+
+export type ImageModelCatalog = {
+  models: ImageModel[];
+  default_image_model: ImageModel;
+  source: "upstream" | "fallback" | string;
+  updated_at: string;
+  refreshed?: boolean;
+  error?: string;
+};
+
+export async function fetchImageModelCatalog() {
+  return httpRequest<ImageModelCatalog>("/api/image-models");
+}
+
+export async function refreshImageModelCatalog() {
+  return httpRequest<ImageModelCatalog>("/api/image-models/refresh", {
+    method: "POST",
+    body: {},
   });
 }
 

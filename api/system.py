@@ -21,6 +21,7 @@ from services.image_service import (
     list_images,
     storage_stats,
 )
+from services.image_model_service import get_image_model_catalog, refresh_image_model_catalog
 from services.image_storage_service import ImageStorageError, image_storage_service
 from services.image_tags_service import delete_tag, get_all_tags, set_tags
 from services.log_service import log_service
@@ -93,6 +94,16 @@ def create_router(app_version: str) -> APIRouter:
             return {"config": config.update(body.model_dump(mode="python"))}
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+
+    @router.get("/api/image-models")
+    async def get_image_models(authorization: str | None = Header(default=None)):
+        require_identity(authorization)
+        return get_image_model_catalog()
+
+    @router.post("/api/image-models/refresh")
+    async def refresh_image_models(authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        return await run_in_threadpool(refresh_image_model_catalog)
 
     @router.get("/api/images")
     async def get_images(request: Request, start_date: str = "", end_date: str = "", authorization: str | None = Header(default=None)):

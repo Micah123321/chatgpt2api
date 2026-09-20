@@ -93,15 +93,33 @@ class ConfigLoadingTests(unittest.TestCase):
             self.assertEqual(store.custom_image_models, ["gpt-5-6", "custom-image-v1"])
             self.assertEqual(
                 store.image_models,
-                ["gpt-image-2", "gpt-5-5-thinking", "gpt-5-5", "gpt-5-3", "gpt-5-6", "custom-image-v1"],
+                [
+                    "gpt-image-2.5-sunburst",
+                    "gpt-image-2.5-flare",
+                    "gpt-image-2",
+                    "gpt-5-5-thinking",
+                    "gpt-5-5",
+                    "gpt-5-3",
+                    "gpt-5-6",
+                    "custom-image-v1",
+                ],
             )
             self.assertEqual(store.get()["custom_image_models"], ["gpt-5-6", "custom-image-v1"])
             self.assertEqual(
                 store.get()["image_models"],
-                ["gpt-image-2", "gpt-5-5-thinking", "gpt-5-5", "gpt-5-3", "gpt-5-6", "custom-image-v1"],
+                [
+                    "gpt-image-2.5-sunburst",
+                    "gpt-image-2.5-flare",
+                    "gpt-image-2",
+                    "gpt-5-5-thinking",
+                    "gpt-5-5",
+                    "gpt-5-3",
+                    "gpt-5-6",
+                    "custom-image-v1",
+                ],
             )
 
-    def test_update_derives_custom_image_models_from_full_model_list(self) -> None:
+    def test_update_persists_refreshed_image_model_cache(self) -> None:
         module = self.config_module
         with tempfile.TemporaryDirectory() as tmp_dir:
             config_file = Path(tmp_dir) / "config.json"
@@ -109,11 +127,49 @@ class ConfigLoadingTests(unittest.TestCase):
             store = module.ConfigStore(config_file)
 
             saved = store.update({
-                "image_models": ["gpt-image-2", "gpt-5-5-thinking", "gpt-5-7", "custom-image-v2"],
+                "image_models_cache": ["gpt-image-2.5-sunburst", "gpt-image-2", "gpt-5-7"],
+                "image_models_source": "upstream",
+                "image_models_updated_at": "2026-09-20T12:00:00+00:00",
             })
 
-            self.assertEqual(saved["custom_image_models"], ["gpt-5-7", "custom-image-v2"])
-            self.assertNotIn("image_models", store.data)
+            self.assertEqual(saved["image_models"], ["gpt-image-2.5-sunburst", "gpt-image-2", "gpt-5-7"])
+            self.assertEqual(saved["image_models_source"], "upstream")
+            self.assertEqual(saved["image_models_updated_at"], "2026-09-20T12:00:00+00:00")
+
+    def test_default_image_model_is_saved_and_reloaded(self) -> None:
+        module = self.config_module
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_file = Path(tmp_dir) / "config.json"
+            config_file.write_text(json.dumps({"auth-key": "test-auth"}), encoding="utf-8")
+            store = module.ConfigStore(config_file)
+
+            saved = store.update({
+                "custom_image_models": ["gpt-image-2.5-sunburst"],
+                "default_image_model": "gpt-image-2.5-sunburst",
+            })
+            reloaded = module.ConfigStore(config_file)
+
+            self.assertEqual(saved["default_image_model"], "gpt-image-2.5-sunburst")
+            self.assertEqual(reloaded.default_image_model, "gpt-image-2.5-sunburst")
+            self.assertEqual(reloaded.get()["default_image_model"], "gpt-image-2.5-sunburst")
+
+    def test_default_image_model_falls_back_when_custom_model_is_removed(self) -> None:
+        module = self.config_module
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_file = Path(tmp_dir) / "config.json"
+            config_file.write_text(
+                json.dumps({
+                    "auth-key": "test-auth",
+                    "custom_image_models": ["custom-image-v1"],
+                    "default_image_model": "custom-image-v1",
+                }),
+                encoding="utf-8",
+            )
+            store = module.ConfigStore(config_file)
+
+            saved = store.update({"custom_image_models": []})
+
+            self.assertEqual(saved["default_image_model"], "gpt-image-2")
 
 
 if __name__ == "__main__":

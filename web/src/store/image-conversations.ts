@@ -36,6 +36,7 @@ export type ImageTurn = {
   model: ImageModel;
   mode: ImageConversationMode;
   referenceImages: StoredReferenceImage[];
+  maskImages: StoredReferenceImage[];
   count: number;
   size: string;
   ratio: string;
@@ -52,6 +53,7 @@ export type ImageTurn = {
 export type ImageConversation = {
   id: string;
   title: string;
+  model: ImageModel;
   createdAt: string;
   updatedAt: string;
   turns: ImageTurn[];
@@ -148,6 +150,11 @@ function normalizeTurn(turn: ImageTurn & Record<string, unknown>): ImageTurn {
     model: (turn.model as ImageModel) || "gpt-image-2",
     mode: turn.mode === "edit" ? "edit" : "generate",
     referenceImages: getLegacyReferenceImages(turn),
+    maskImages: Array.isArray(turn.maskImages)
+      ? turn.maskImages
+          .filter((image): image is StoredReferenceImage => Boolean(image && typeof image.dataUrl === "string" && image.dataUrl))
+          .map(normalizeReferenceImage)
+      : [],
     count: Math.max(1, Number(turn.count || normalizedImages.length || 1)),
     size: typeof turn.size === "string" ? turn.size : "",
     ratio: typeof turn.ratio === "string" && turn.ratio ? turn.ratio : "1:1",
@@ -178,6 +185,7 @@ function normalizeConversation(conversation: ImageConversation & Record<string, 
           model: (conversation.model as ImageModel) || "gpt-image-2",
           mode: conversation.mode === "edit" ? "edit" : "generate",
           referenceImages: getLegacyReferenceImages(conversation),
+          maskImages: [],
           count: Number(conversation.count || 1),
           size: typeof conversation.size === "string" ? conversation.size : "",
           ratio: typeof conversation.ratio === "string" && conversation.ratio ? conversation.ratio : "1:1",
@@ -197,6 +205,7 @@ function normalizeConversation(conversation: ImageConversation & Record<string, 
   return {
     id: String(conversation.id || `${Date.now()}`),
     title: String(conversation.title || ""),
+    model: (conversation.model as ImageModel) || lastTurn?.model || "gpt-image-2",
     createdAt: String(conversation.createdAt || lastTurn?.createdAt || new Date().toISOString()),
     updatedAt: String(conversation.updatedAt || lastTurn?.createdAt || new Date().toISOString()),
     turns,

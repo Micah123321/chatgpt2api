@@ -63,8 +63,15 @@ class ImageTasksApiTests(unittest.TestCase):
     def setUp(self):
         self.fake_service = FakeImageTaskService()
         self.service_patcher = mock.patch.object(image_tasks_module, "image_task_service", self.fake_service)
+        self.identity_patcher = mock.patch.object(
+            image_tasks_module,
+            "require_identity",
+            return_value={"id": "test", "name": "Test", "role": "admin"},
+        )
         self.service_patcher.start()
+        self.identity_patcher.start()
         self.addCleanup(self.service_patcher.stop)
+        self.addCleanup(self.identity_patcher.stop)
         app = FastAPI()
         app.include_router(image_tasks_module.create_router())
         self.client = TestClient(app)
@@ -81,6 +88,20 @@ class ImageTasksApiTests(unittest.TestCase):
         self.assertEqual(payload["id"], "task-1")
         self.assertEqual(payload["status"], "success")
         self.assertEqual(len(self.fake_service.generation_calls), 1)
+
+    def test_create_generation_task_uses_configured_default_model(self):
+        with mock.patch.dict(image_tasks_module.config.data, {
+            "custom_image_models": ["custom-image-v1"],
+            "default_image_model": "custom-image-v1",
+        }):
+            response = self.client.post(
+                "/api/image-tasks/generations",
+                headers=AUTH_HEADERS,
+                json={"client_task_id": "task-default-model", "prompt": "cat"},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.fake_service.generation_calls[0][1]["model"], "custom-image-v1")
 
     def test_create_edit_task_accepts_multiple_images(self):
         """测试图片编辑任务接口支持多个上传图片。"""
@@ -99,6 +120,22 @@ class ImageTasksApiTests(unittest.TestCase):
         self.assertEqual(len(self.fake_service.edit_calls), 1)
         images = self.fake_service.edit_calls[0][1]["images"]
         self.assertEqual(len(images), 2)
+
+    def test_create_edit_task_forwards_annotation_mask(self):
+        response = self.client.post(
+            "/api/image-tasks/edits",
+            headers=AUTH_HEADERS,
+            data={"client_task_id": "edit-mask-1", "prompt": "replace marked area"},
+            files=[
+                ("image", ("source.png", b"source", "image/png")),
+                ("mask", ("mask.png", b"mask", "image/png")),
+            ],
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        call = self.fake_service.edit_calls[0][1]
+        self.assertEqual(call["images"], [(b"source", "source.png", "image/png")])
+        self.assertEqual(call["masks"], [(b"mask", "mask.png", "image/png")])
 
     def test_create_edit_task_accepts_image_url(self):
         """测试图片编辑任务接口支持表单 image_url 引用。"""
