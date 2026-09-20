@@ -20,6 +20,7 @@ type ImageDrawingDialogProps = {
 };
 
 type Point = { x: number; y: number };
+export const ANNOTATION_OVERLAY_COLOR = "rgba(64, 64, 64, 0.36)";
 
 function canvasBlob(canvas: HTMLCanvasElement) {
   return new Promise<Blob>((resolve, reject) => {
@@ -94,7 +95,7 @@ export function ImageDrawingDialog({ mode, open, source, onOpenChange, onApply }
     visibleContext.lineJoin = "round";
     visibleContext.lineWidth = effectiveSize;
     visibleContext.globalCompositeOperation = tool === "erase" ? "destination-out" : "source-over";
-    visibleContext.strokeStyle = mode === "annotate" ? "rgba(239, 68, 68, 0.62)" : "#171717";
+    visibleContext.strokeStyle = mode === "annotate" ? ANNOTATION_OVERLAY_COLOR : "#171717";
     if (mode === "sketch" && tool === "erase") {
       visibleContext.globalCompositeOperation = "source-over";
       visibleContext.strokeStyle = "#ffffff";

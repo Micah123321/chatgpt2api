@@ -4,6 +4,8 @@ import { memo, useEffect, useRef, useState } from "react";
 import { Brush, Clock3, Download, EyeOff, LoaderCircle, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useCachedImageSource } from "@/hooks/use-cached-image-source";
+import { getImmediateCachedImageSource, resolveCachedImage } from "@/lib/image-cache";
 import { cn } from "@/lib/utils";
 import type { ImageConversation, ImageTurnStatus, StoredImage, StoredReferenceImage } from "@/store/image-conversations";
 
@@ -57,13 +59,7 @@ async function downloadStoredImage(image: StoredImage, index: number) {
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       blob = new Blob([bytes], { type: "image/png" });
     } else if (image.url) {
-      // 确保 URL 是绝对路径
-      const url = image.url.startsWith("http") ? image.url : `${window.location.origin}${image.url}`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      }
-      blob = await res.blob();
+      blob = (await resolveCachedImage(image.url)).blob;
     } else {
       return;
     }
@@ -75,6 +71,7 @@ async function downloadStoredImage(image: StoredImage, index: number) {
     }
     return;
   }
+  if (!blob) return;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -309,7 +306,11 @@ export function ImageResults({
                                   variant="outline"
                                   size="sm"
                                   className="h-8 w-full rounded-full border-stone-200 bg-white px-0 text-[10px] text-stone-700 hover:bg-stone-50 sm:w-fit sm:px-3 sm:text-xs"
-                                  onClick={() => onAnnotateImage(selectedConversation.id, image, imageSrc)}
+                                  onClick={() => onAnnotateImage(
+                                    selectedConversation.id,
+                                    image,
+                                    getImmediateCachedImageSource(imageSrc) || imageSrc,
+                                  )}
                                   aria-label="编辑"
                                 >
                                   <Brush className="size-3 sm:size-4" />
@@ -549,6 +550,7 @@ const LazyImage = memo(function LazyImage({ src, alt, className, onLoad, onOpen 
 }) {
   const [isVisible, setIsVisible] = useState(false);
   const imgRef = useRef<HTMLDivElement>(null);
+  const cachedSrc = useCachedImageSource(src, isVisible);
 
   useEffect(() => {
     const element = imgRef.current;
@@ -569,14 +571,14 @@ const LazyImage = memo(function LazyImage({ src, alt, className, onLoad, onOpen 
 
   return (
     <div ref={imgRef} className="relative">
-      {isVisible ? (
+      {isVisible && cachedSrc ? (
         <button
           type="button"
           onClick={onOpen}
           className={className}
         >
           <img
-            src={src}
+            src={cachedSrc}
             alt={alt}
             className="block h-full w-full object-cover transition duration-200 group-hover:brightness-90 sm:h-auto sm:object-contain"
             onLoad={onLoad}

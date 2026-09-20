@@ -15,8 +15,21 @@ const load = (name) => {
     return { cn: (...values) => values.filter(Boolean).join(" ") };
   }
   if (name === "@/components/image-lightbox") return { ImageLightbox: () => null };
+  if (name === "@/hooks/use-cached-image-source") return { useCachedImageSource: (source) => source };
+  if (name === "@/lib/image-cache") {
+    return {
+      getImmediateCachedImageSource: () => null,
+      resolveCachedImage: async (source) => ({ source, src: source, blob: null, fromCache: false }),
+    };
+  }
+  if (name === "@/components/ui/dialog") {
+    return Object.fromEntries(
+      ["Dialog", "DialogContent", "DialogDescription", "DialogFooter", "DialogHeader", "DialogTitle"].map((component) => [component, stub("div")]),
+    );
+  }
   if (name === "@/components/ui/input") return { Input: stub("input") };
   if (name === "@/components/ui/textarea") return { Textarea: stub("textarea") };
+  if (name === "sonner") return { toast: { error: () => {} } };
   if (name === "@/components/ui/select") {
     return Object.fromEntries(
       ["Select", "SelectContent", "SelectItem", "SelectTrigger", "SelectValue"].map((component) => [component, stub("div")]),
@@ -35,6 +48,10 @@ function loadComponent(file, exportName) {
 }
 const ImageResults = loadComponent("../src/app/image/components/image-results.tsx", "ImageResults");
 const ImageComposer = loadComponent("../src/app/image/components/image-composer.tsx", "ImageComposer");
+const annotationOverlayColor = loadComponent(
+  "../src/app/image/components/image-drawing-dialog.tsx",
+  "ANNOTATION_OVERLAY_COLOR",
+);
 
 function renderTurn(maskImages) {
   const turn = {
@@ -114,4 +131,13 @@ test("successful image keeps metadata and actions in separate rows", () => {
   assert.match(actionsMarkup, /aria-label="编辑"/);
   assert.match(actionsMarkup, /aria-label="引用"/);
   assert.doesNotMatch(actionsMarkup, /标注编辑|加入编辑/);
+});
+
+test("annotation overlay is neutral gray and keeps the covered image visible", () => {
+  const channels = annotationOverlayColor.match(/^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/);
+  assert.ok(channels);
+  assert.equal(channels[1], channels[2]);
+  assert.equal(channels[2], channels[3]);
+  const alpha = Number(channels[4]);
+  assert.ok(alpha > 0 && alpha < 0.5);
 });

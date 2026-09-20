@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
 
+import { useCachedImageSource } from "@/hooks/use-cached-image-source";
+import { resolveCachedImage } from "@/lib/image-cache";
 import { cn } from "@/lib/utils";
 
 type LightboxImage = {
@@ -101,6 +103,7 @@ export function ImageLightbox({
   const [transform, setTransform] = useState<ImageTransform>({ scale: 1, x: 0, y: 0 });
   const [isGesturing, setIsGesturing] = useState(false);
   const current = images[currentIndex];
+  const currentImageSrc = useCachedImageSource(current?.src || "", open && Boolean(current));
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex < images.length - 1;
 
@@ -182,13 +185,21 @@ export function ImageLightbox({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, goPrev, goNext]);
 
-  const handleDownload = useCallback(() => {
+  const handleDownload = useCallback(async () => {
     if (!current) return;
+    let downloadSrc = currentImageSrc;
+    if (!downloadSrc) {
+      try {
+        downloadSrc = (await resolveCachedImage(current.src)).src;
+      } catch {
+        downloadSrc = current.src;
+      }
+    }
     const link = document.createElement("a");
-    link.href = current.src;
+    link.href = downloadSrc;
     link.download = `image-${current.id}.png`;
     link.click();
-  }, [current]);
+  }, [current, currentImageSrc]);
 
   const toggleZoom = useCallback(() => {
     setTransform((currentTransform) =>
@@ -366,7 +377,7 @@ export function ImageLightbox({
             )}
             <button
               type="button"
-              onClick={handleDownload}
+              onClick={() => void handleDownload()}
               className="inline-flex size-9 items-center justify-center rounded-full bg-black/50 text-white/90 transition hover:bg-black/70"
               aria-label="下载图片"
             >
@@ -397,24 +408,28 @@ export function ImageLightbox({
             onTouchEnd={handleTouchEnd}
             onTouchCancel={handleTouchCancel}
           >
-            <img
-              src={current.src}
-              alt=""
-              className={cn(
-                "max-h-[90vh] max-w-[90vw] rounded-lg object-contain will-change-transform",
-                isGesturing ? "" : "transition-transform duration-150 ease-out",
-                transform.scale > minScale ? "cursor-grab active:cursor-grabbing" : "cursor-zoom-in",
-              )}
-              style={{
-                transform: `translate3d(${transform.x}px, ${transform.y}px, 0) scale(${transform.scale})`,
-              }}
-              onClick={(e) => e.stopPropagation()}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                toggleZoom();
-              }}
-              draggable={false}
-            />
+            {currentImageSrc ? (
+              <img
+                src={currentImageSrc}
+                alt=""
+                className={cn(
+                  "max-h-[90vh] max-w-[90vw] rounded-lg object-contain will-change-transform",
+                  isGesturing ? "" : "transition-transform duration-150 ease-out",
+                  transform.scale > minScale ? "cursor-grab active:cursor-grabbing" : "cursor-zoom-in",
+                )}
+                style={{
+                  transform: `translate3d(${transform.x}px, ${transform.y}px, 0) scale(${transform.scale})`,
+                }}
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  toggleZoom();
+                }}
+                draggable={false}
+              />
+            ) : (
+              <div className="h-[min(70vh,720px)] w-[min(80vw,720px)] animate-pulse rounded-lg bg-white/10" aria-label="正在读取本地图片缓存" />
+            )}
           </div>
 
           {hasNext && transform.scale <= minScale && (

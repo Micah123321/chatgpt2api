@@ -29,6 +29,7 @@ import {
   type ImageModel,
   type ImageTask,
 } from "@/lib/api";
+import { clearCachedImages, deleteCachedImageSources, resolveCachedImage } from "@/lib/image-cache";
 import { useAuthGuard } from "@/lib/use-auth-guard";
 import { useSettingsStore } from "@/app/settings/store";
 import {
@@ -173,12 +174,17 @@ function buildReferenceImageFromResult(image: StoredImage, fileName: string): St
 }
 
 async function fetchImageAsFile(url: string, fileName: string) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error("读取结果图失败");
-  }
-  const blob = await response.blob();
+  const blob = (await resolveCachedImage(url)).blob;
+  if (!blob) throw new Error("读取结果图失败");
   return new File([blob], fileName, { type: blob.type || "image/png" });
+}
+
+function getTurnResultSources(turn: ImageTurn | null | undefined) {
+  return turn?.images.flatMap((image) => (image.url ? [image.url] : [])) || [];
+}
+
+function getConversationResultSources(conversation: ImageConversation | null | undefined) {
+  return conversation?.turns.flatMap(getTurnResultSources) || [];
 }
 
 async function buildReferenceImageFromStoredImage(image: StoredImage, fileName: string) {
@@ -972,6 +978,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   };
 
   const handleDeleteConversation = async (id: string) => {
+    const removedConversation = conversations.find((item) => item.id === id);
     const nextConversations = conversations.filter((item) => item.id !== id);
     conversationsRef.current = nextConversations;
     setConversations(nextConversations);
@@ -982,6 +989,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
 
     try {
       await deleteImageConversation(id);
+      await deleteCachedImageSources(getConversationResultSources(removedConversation));
     } catch (error) {
       const message = error instanceof Error ? error.message : "删除会话失败";
       toast.error(message);
@@ -996,6 +1004,9 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
     if (!conversation) {
       return;
     }
+    const removedSources = part === "results"
+      ? getTurnResultSources(conversation.turns.find((turn) => turn.id === turnId))
+      : [];
 
     const turns = conversation.turns
       .map((turn) => {
@@ -1036,11 +1047,15 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       turns,
     };
     await persistConversation(nextConversation);
+    if (removedSources.length > 0) {
+      await deleteCachedImageSources(removedSources);
+    }
   };
 
   const handleClearHistory = async () => {
     try {
       await clearImageConversations();
+      await clearCachedImages().catch(() => undefined);
       conversationsRef.current = [];
       setConversations([]);
       setSelectedConversationId(null);
@@ -1498,6 +1513,9 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       if (!conversation) {
         return;
       }
+      const replacedImage = conversation.turns
+        .find((turn) => turn.id === turnId)
+        ?.images.find((image) => image.id === imageId);
 
       const now = new Date().toISOString();
       const retryImageId = `${turnId}-${createId()}`;
@@ -1532,6 +1550,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
 
       setSelectedConversationId(conversationId);
       await persistConversation(nextConversation);
+      await deleteCachedImageSources([replacedImage?.url]);
       void runConversationQueue(conversationId);
     },
     [runConversationQueue],
