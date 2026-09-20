@@ -237,7 +237,7 @@ export function ImageResults({
                               onClick={() => onContinueEdit(selectedConversation.id, image)}
                             >
                               <Sparkles className="size-4" />
-                              加入编辑
+                              引用
                             </Button>
                           </div>
                         ))}
@@ -298,37 +298,37 @@ export function ImageResults({
                               }}
                               onOpen={() => onOpenLightbox(successfulTurnImages, currentIndex)}
                             />
-                            <div className="flex flex-col gap-1 px-0.5 py-1 text-[10px] sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-3 sm:py-3 sm:text-xs">
-                              <div className="min-w-0 text-stone-500">
+                            <div className="flex flex-col gap-2 px-0.5 py-1 text-[10px] sm:px-3 sm:py-3 sm:text-xs">
+                              <div data-slot="image-result-meta" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-stone-500">
                                 <span>结果 {index + 1}</span>
-                                {image.durationMs != null ? <span className="text-stone-400 sm:ml-2">{formatDuration(image.durationMs)}</span> : null}
-                                {imageMeta ? <span className="block text-stone-400">{imageMeta}</span> : null}
+                                {image.durationMs != null ? <span className="whitespace-nowrap text-stone-400">{formatDuration(image.durationMs)}</span> : null}
+                                {imageMeta ? <span className="whitespace-nowrap text-stone-400">{imageMeta}</span> : null}
                               </div>
-                              <div className="flex items-center gap-1.5">
+                              <div data-slot="image-result-actions" className="grid grid-cols-3 gap-1.5 sm:flex sm:items-center sm:justify-end">
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="h-7 w-7 rounded-full border-stone-200 bg-white px-0 text-[10px] text-stone-700 hover:bg-stone-50 sm:h-8 sm:w-fit sm:px-3 sm:text-xs"
+                                  className="h-8 w-full rounded-full border-stone-200 bg-white px-0 text-[10px] text-stone-700 hover:bg-stone-50 sm:w-fit sm:px-3 sm:text-xs"
                                   onClick={() => onAnnotateImage(selectedConversation.id, image, imageSrc)}
-                                  aria-label="标注编辑"
+                                  aria-label="编辑"
                                 >
                                   <Brush className="size-3 sm:size-4" />
-                                  <span className="hidden sm:inline">标注编辑</span>
+                                  <span className="hidden sm:inline">编辑</span>
                                 </Button>
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="h-7 w-7 rounded-full border-stone-200 bg-white px-0 text-[10px] text-stone-700 hover:bg-stone-50 sm:h-8 sm:w-fit sm:px-3 sm:text-xs"
+                                  className="h-8 w-full rounded-full border-stone-200 bg-white px-0 text-[10px] text-stone-700 hover:bg-stone-50 sm:w-fit sm:px-3 sm:text-xs"
                                   onClick={() => onContinueEdit(selectedConversation.id, image)}
-                                  aria-label="加入编辑"
+                                  aria-label="引用"
                                 >
                                   <Sparkles className="size-3 sm:size-4" />
-                                  <span className="hidden sm:inline">加入编辑</span>
+                                  <span className="hidden sm:inline">引用</span>
                                 </Button>
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="h-7 w-7 rounded-full border-stone-200 bg-white px-0 text-[10px] text-stone-700 hover:bg-stone-50 sm:h-8 sm:w-fit sm:px-3 sm:text-xs"
+                                  className="h-8 w-full rounded-full border-stone-200 bg-white px-0 text-[10px] text-stone-700 hover:bg-stone-50 sm:w-fit sm:px-3 sm:text-xs"
                                   onClick={() => void downloadStoredImage(image, index)}
                                   aria-label="下载"
                                 >

@@ -86,3 +86,32 @@ test("composer shows the pending mask alongside the source before submission", (
   assert.match(markup, /data:image\/png;base64,bWFzaw==/);
   assert.match(markup, /预览标注遮罩/);
 });
+
+test("successful image keeps metadata and actions in separate rows", () => {
+  const noop = () => {};
+  const turn = {
+    id: "turn-layout", prompt: "测试结果布局", model: "gpt-image-2", mode: "generate",
+    referenceImages: [], maskImages: [], count: 1, size: "1024x1024", ratio: "1:1", tier: "1k", quality: "auto",
+    images: [{ id: "image-1", status: "success", url: "/image.png", durationMs: 60913 }],
+    createdAt: "2026-09-20T00:00:00Z", status: "success",
+  };
+  const markup = renderToStaticMarkup(React.createElement(ImageResults, {
+    selectedConversation: {
+      id: "conversation-layout", title: "布局", model: turn.model, turns: [turn],
+      createdAt: turn.createdAt, updatedAt: turn.createdAt,
+    },
+    onOpenLightbox: noop, onContinueEdit: noop, onAnnotateImage: noop,
+    onDeletePrompt: noop, onDeleteResults: noop, onReuseTurnConfig: noop,
+    onRegenerateTurn: noop, onRetryImage: noop, onTimeoutRetryContinue: noop,
+    onDismissErrors: noop, formatConversationTime: () => "刚刚",
+  }));
+  const metadataPosition = markup.indexOf('data-slot="image-result-meta"');
+  const actionsPosition = markup.indexOf('data-slot="image-result-actions"');
+  assert.ok(metadataPosition >= 0);
+  assert.ok(actionsPosition > metadataPosition);
+  assert.match(markup.slice(metadataPosition, actionsPosition), /60\.9s/);
+  const actionsMarkup = markup.slice(actionsPosition);
+  assert.match(actionsMarkup, /aria-label="编辑"/);
+  assert.match(actionsMarkup, /aria-label="引用"/);
+  assert.doesNotMatch(actionsMarkup, /标注编辑|加入编辑/);
+});
