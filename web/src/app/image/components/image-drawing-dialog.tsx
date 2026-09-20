@@ -20,7 +20,64 @@ type ImageDrawingDialogProps = {
 };
 
 type Point = { x: number; y: number };
-export const ANNOTATION_OVERLAY_COLOR = "rgba(64, 64, 64, 0.36)";
+export const ANNOTATION_OVERLAY_COLOR = "rgba(39, 39, 42, 0.14)";
+export const ANNOTATION_HATCH_DARK_COLOR = "rgba(24, 24, 27, 0.72)";
+export const ANNOTATION_HATCH_LIGHT_COLOR = "rgba(255, 255, 255, 0.88)";
+
+function drawAnnotationHatch(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+) {
+  const scale = Math.max(1, Math.min(width, height) / 768);
+  const spacing = 14 * scale;
+  const highlightOffset = 2 * scale;
+
+  context.lineCap = "butt";
+  context.lineWidth = 1.35 * scale;
+
+  const drawLines = (color: string, offset: number) => {
+    context.strokeStyle = color;
+    context.beginPath();
+    for (let diagonal = -height + offset; diagonal <= width; diagonal += spacing) {
+      context.moveTo(diagonal, 0);
+      context.lineTo(diagonal + height, height);
+    }
+    context.stroke();
+  };
+
+  drawLines(ANNOTATION_HATCH_DARK_COLOR, 0);
+  drawLines(ANNOTATION_HATCH_LIGHT_COLOR, highlightOffset);
+}
+
+function drawAnnotationInsetOutline(
+  context: CanvasRenderingContext2D,
+  maskCanvas: CanvasImageSource,
+  width: number,
+  height: number,
+) {
+  const scale = Math.max(1, Math.min(width, height) / 768);
+  const directions = [
+    [-1, -1], [0, -1], [1, -1],
+    [-1, 0], [1, 0],
+    [-1, 1], [0, 1], [1, 1],
+  ] as const;
+
+  const drawExpandedMask = (radius: number, filter: string, alpha: number) => {
+    context.filter = filter;
+    context.globalAlpha = alpha;
+    for (const [x, y] of directions) {
+      context.drawImage(maskCanvas, x * radius, y * radius, width, height);
+    }
+  };
+
+  // The larger dark rim and smaller light rim form a two-tone inner edge that
+  // remains visible on both light and dark source images.
+  drawExpandedMask(3.5 * scale, "brightness(0)", 0.76);
+  drawExpandedMask(1.6 * scale, "none", 0.94);
+  context.filter = "none";
+  context.globalAlpha = 1;
+}
 
 export function renderAnnotationOverlay(
   visibleContext: CanvasRenderingContext2D,
@@ -33,6 +90,8 @@ export function renderAnnotationOverlay(
   visibleContext.globalCompositeOperation = "source-over";
   visibleContext.fillStyle = ANNOTATION_OVERLAY_COLOR;
   visibleContext.fillRect(0, 0, width, height);
+  drawAnnotationHatch(visibleContext, width, height);
+  drawAnnotationInsetOutline(visibleContext, maskCanvas, width, height);
   visibleContext.globalCompositeOperation = "destination-out";
   visibleContext.drawImage(maskCanvas, 0, 0, width, height);
   visibleContext.restore();
@@ -186,7 +245,7 @@ export function ImageDrawingDialog({ mode, open, source, onOpenChange, onApply }
           <DialogTitle>{mode === "annotate" ? "标注要修改的区域" : "绘制草图"}</DialogTitle>
           <DialogDescription>
             {mode === "annotate"
-              ? "涂抹需要修改的位置，应用后在输入框描述修改内容。"
+              ? "涂抹需要修改的位置，灰色斜纹区域会被修改；应用后在输入框描述修改内容。"
               : "画出大致布局或轮廓，应用后再描述希望生成的完整画面。"}
           </DialogDescription>
         </DialogHeader>

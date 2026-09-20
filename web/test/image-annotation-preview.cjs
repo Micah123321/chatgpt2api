@@ -52,6 +52,14 @@ const annotationOverlayColor = loadComponent(
   "../src/app/image/components/image-drawing-dialog.tsx",
   "ANNOTATION_OVERLAY_COLOR",
 );
+const annotationHatchDarkColor = loadComponent(
+  "../src/app/image/components/image-drawing-dialog.tsx",
+  "ANNOTATION_HATCH_DARK_COLOR",
+);
+const annotationHatchLightColor = loadComponent(
+  "../src/app/image/components/image-drawing-dialog.tsx",
+  "ANNOTATION_HATCH_LIGHT_COLOR",
+);
 const renderAnnotationOverlay = loadComponent(
   "../src/app/image/components/image-drawing-dialog.tsx",
   "renderAnnotationOverlay",
@@ -137,25 +145,45 @@ test("successful image keeps metadata and actions in separate rows", () => {
   assert.doesNotMatch(actionsMarkup, /标注编辑|加入编辑/);
 });
 
-test("annotation overlay is neutral gray and keeps the covered image visible", () => {
+test("annotation overlay uses a light neutral wash with high-contrast neutral hatching", () => {
   const channels = annotationOverlayColor.match(/^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/);
   assert.ok(channels);
   assert.equal(channels[1], channels[2]);
-  assert.equal(channels[2], channels[3]);
   const alpha = Number(channels[4]);
-  assert.ok(alpha > 0 && alpha < 0.5);
+  assert.ok(Math.abs(Number(channels[2]) - Number(channels[3])) <= 3);
+  assert.ok(alpha > 0 && alpha <= 0.2);
+
+  const darkChannels = annotationHatchDarkColor.match(/^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/);
+  const lightChannels = annotationHatchLightColor.match(/^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/);
+  assert.ok(darkChannels);
+  assert.ok(lightChannels);
+  assert.equal(darkChannels[1], darkChannels[2]);
+  assert.ok(Math.abs(Number(darkChannels[2]) - Number(darkChannels[3])) <= 3);
+  assert.equal(lightChannels[1], lightChannels[2]);
+  assert.equal(lightChannels[2], lightChannels[3]);
+  assert.ok(Number(darkChannels[4]) >= 0.7);
+  assert.ok(Number(lightChannels[4]) >= 0.8);
 });
 
 test("annotation overlay opacity stays constant when the same area is painted repeatedly", () => {
   const maskCanvas = { editedAlpha: 0 };
   const visibleContext = {
     alpha: 0,
+    filter: "none",
     fillStyle: "",
+    globalAlpha: 1,
     globalCompositeOperation: "source-over",
+    lineCap: "butt",
+    lineWidth: 1,
+    strokeStyle: "",
     save() {},
     restore() {},
     clearRect() { this.alpha = 0; },
     fillRect() { this.alpha = Number(this.fillStyle.match(/([\d.]+)\)$/)?.[1] || 0); },
+    beginPath() {},
+    moveTo() {},
+    lineTo() {},
+    stroke() {},
     drawImage(mask) {
       if (this.globalCompositeOperation === "destination-out") {
         this.alpha *= 1 - mask.editedAlpha;
@@ -168,5 +196,5 @@ test("annotation overlay opacity stays constant when the same area is painted re
   renderAnnotationOverlay(visibleContext, maskCanvas, 128, 128);
 
   assert.equal(visibleContext.alpha, firstPassAlpha);
-  assert.equal(firstPassAlpha, 0.36);
+  assert.equal(firstPassAlpha, 0.14);
 });
