@@ -23,6 +23,7 @@ type ImageComposerProps = {
   availableQuota: string;
   activeTaskCount: number;
   referenceImages: Array<{ name: string; dataUrl: string }>;
+  maskImages: Array<{ name: string; dataUrl: string }>;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   fileInputRef: RefObject<HTMLInputElement | null>;
   onPromptChange: (value: string) => void;
@@ -96,6 +97,7 @@ export function ImageComposer({
   availableQuota,
   activeTaskCount,
   referenceImages,
+  maskImages,
   textareaRef,
   fileInputRef,
   onPromptChange,
@@ -120,8 +122,11 @@ export function ImageComposer({
   const sizeMenuRef = useRef<HTMLDivElement>(null);
   const sizeMenuBtnRef = useRef<HTMLButtonElement>(null);
   const lightboxImages = useMemo(
-    () => referenceImages.map((image, index) => ({ id: `${image.name}-${index}`, src: image.dataUrl })),
-    [referenceImages],
+    () => [
+      ...referenceImages.map((image, index) => ({ id: `${image.name}-${index}`, src: image.dataUrl })),
+      ...maskImages.map((image, index) => ({ id: `mask-${image.name}-${index}`, src: image.dataUrl })),
+    ],
+    [referenceImages, maskImages],
   );
   const modelOptions = useMemo(
     () => imageModels.map((model) => ({ value: model, label: model })),
@@ -264,6 +269,22 @@ export function ImageComposer({
                   <X className="size-3" />
                 </button>
               </div>
+            ))}
+            {maskImages.map((mask, index) => (
+              <button
+                key={`mask-${mask.name}-${index}`}
+                type="button"
+                onClick={() => {
+                  setLightboxIndex(referenceImages.length + index);
+                  setLightboxOpen(true);
+                }}
+                className="relative size-14 shrink-0 overflow-hidden rounded-2xl border border-stone-300 bg-stone-300 sm:size-16"
+                aria-label={`预览标注遮罩 ${index + 1}（透明区域将重绘）`}
+                title="标注遮罩：透明区域将重绘"
+              >
+                <img src={mask.dataUrl} alt={`标注遮罩 ${index + 1}`} className="h-full w-full object-contain" />
+                <span className="absolute inset-x-0 bottom-0 bg-stone-900/75 py-0.5 text-center text-[10px] text-white">遮罩</span>
+              </button>
             ))}
           </div>
         ) : null}

@@ -1837,6 +1837,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
             availableQuota={availableQuota}
             activeTaskCount={activeTaskCount}
             referenceImages={referenceImages}
+            maskImages={maskImages}
             textareaRef={textareaRef}
             fileInputRef={fileInputRef}
             onPromptChange={setImagePrompt}

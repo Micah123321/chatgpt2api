@@ -150,10 +150,16 @@ export function ImageResults({
   return (
     <div className="mx-auto flex w-full max-w-[980px] flex-col gap-5 sm:gap-8">
       {selectedConversation.turns.map((turn, turnIndex) => {
-        const referenceLightboxImages = turn.referenceImages.map((image, index) => ({
-          id: `${turn.id}-reference-${index}`,
-          src: image.dataUrl,
-        }));
+        const referenceLightboxImages = [
+          ...turn.referenceImages.map((image, index) => ({
+            id: `${turn.id}-reference-${index}`,
+            src: image.dataUrl,
+          })),
+          ...turn.maskImages.map((image, index) => ({
+            id: `${turn.id}-mask-${index}`,
+            src: image.dataUrl,
+          })),
+        ];
         const successfulTurnImages = turn.images.flatMap((image) => {
           const src = image.status === "success" ? getStoredImageSrc(image) : "";
           return src
@@ -233,6 +239,23 @@ export function ImageResults({
                               <Sparkles className="size-4" />
                               加入编辑
                             </Button>
+                          </div>
+                        ))}
+                        {turn.maskImages.map((mask, index) => (
+                          <div key={`${turn.id}-mask-${index}`} className="flex flex-col items-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => onOpenLightbox(referenceLightboxImages, turn.referenceImages.length + index)}
+                              className="group relative h-24 w-24 overflow-hidden border border-stone-200/80 bg-stone-300 text-left transition hover:border-stone-400"
+                              aria-label={`预览标注遮罩 ${index + 1}`}
+                            >
+                              <img
+                                src={mask.dataUrl}
+                                alt={`标注遮罩 ${index + 1}：透明区域将重绘`}
+                                className="absolute inset-0 h-full w-full object-contain"
+                              />
+                            </button>
+                            <span className="text-[11px] text-stone-500">标注遮罩 · 透明处重绘</span>
                           </div>
                         ))}
                       </div>
