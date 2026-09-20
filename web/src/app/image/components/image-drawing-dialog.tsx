@@ -22,6 +22,22 @@ type ImageDrawingDialogProps = {
 type Point = { x: number; y: number };
 export const ANNOTATION_OVERLAY_COLOR = "rgba(64, 64, 64, 0.36)";
 
+export function renderAnnotationOverlay(
+  visibleContext: CanvasRenderingContext2D,
+  maskCanvas: CanvasImageSource,
+  width: number,
+  height: number,
+) {
+  visibleContext.save();
+  visibleContext.clearRect(0, 0, width, height);
+  visibleContext.globalCompositeOperation = "source-over";
+  visibleContext.fillStyle = ANNOTATION_OVERLAY_COLOR;
+  visibleContext.fillRect(0, 0, width, height);
+  visibleContext.globalCompositeOperation = "destination-out";
+  visibleContext.drawImage(maskCanvas, 0, 0, width, height);
+  visibleContext.restore();
+}
+
 function canvasBlob(canvas: HTMLCanvasElement) {
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("无法导出画布"))), "image/png");
@@ -62,6 +78,9 @@ export function ImageDrawingDialog({ mode, open, source, onOpenChange, onApply }
         maskContext.fillStyle = "#ffffff";
         maskContext.fillRect(0, 0, width, height);
       }
+      if (mode === "annotate") {
+        renderAnnotationOverlay(visibleContext, mask, width, height);
+      }
     }
     setHasDrawing(false);
   }, [dimensions.height, dimensions.width, mode]);
@@ -91,23 +110,10 @@ export function ImageDrawingDialog({ mode, open, source, onOpenChange, onApply }
     const visibleContext = visible.getContext("2d");
     if (!visibleContext) return;
     const effectiveSize = brushSize * (visible.width / 1024);
-    visibleContext.lineCap = "round";
-    visibleContext.lineJoin = "round";
-    visibleContext.lineWidth = effectiveSize;
-    visibleContext.globalCompositeOperation = tool === "erase" ? "destination-out" : "source-over";
-    visibleContext.strokeStyle = mode === "annotate" ? ANNOTATION_OVERLAY_COLOR : "#171717";
-    if (mode === "sketch" && tool === "erase") {
-      visibleContext.globalCompositeOperation = "source-over";
-      visibleContext.strokeStyle = "#ffffff";
-    }
-    visibleContext.beginPath();
-    visibleContext.moveTo(from.x, from.y);
-    visibleContext.lineTo(to.x, to.y);
-    visibleContext.stroke();
-
     if (mode === "annotate") {
-      const maskContext = maskCanvasRef.current?.getContext("2d");
-      if (maskContext) {
+      const mask = maskCanvasRef.current;
+      const maskContext = mask?.getContext("2d");
+      if (mask && maskContext) {
         maskContext.lineCap = "round";
         maskContext.lineJoin = "round";
         maskContext.lineWidth = effectiveSize;
@@ -117,7 +123,18 @@ export function ImageDrawingDialog({ mode, open, source, onOpenChange, onApply }
         maskContext.moveTo(from.x, from.y);
         maskContext.lineTo(to.x, to.y);
         maskContext.stroke();
+        renderAnnotationOverlay(visibleContext, mask, visible.width, visible.height);
       }
+    } else {
+      visibleContext.lineCap = "round";
+      visibleContext.lineJoin = "round";
+      visibleContext.lineWidth = effectiveSize;
+      visibleContext.globalCompositeOperation = "source-over";
+      visibleContext.strokeStyle = tool === "erase" ? "#ffffff" : "#171717";
+      visibleContext.beginPath();
+      visibleContext.moveTo(from.x, from.y);
+      visibleContext.lineTo(to.x, to.y);
+      visibleContext.stroke();
     }
     setHasDrawing(true);
   };

@@ -52,6 +52,10 @@ const annotationOverlayColor = loadComponent(
   "../src/app/image/components/image-drawing-dialog.tsx",
   "ANNOTATION_OVERLAY_COLOR",
 );
+const renderAnnotationOverlay = loadComponent(
+  "../src/app/image/components/image-drawing-dialog.tsx",
+  "renderAnnotationOverlay",
+);
 
 function renderTurn(maskImages) {
   const turn = {
@@ -140,4 +144,29 @@ test("annotation overlay is neutral gray and keeps the covered image visible", (
   assert.equal(channels[2], channels[3]);
   const alpha = Number(channels[4]);
   assert.ok(alpha > 0 && alpha < 0.5);
+});
+
+test("annotation overlay opacity stays constant when the same area is painted repeatedly", () => {
+  const maskCanvas = { editedAlpha: 0 };
+  const visibleContext = {
+    alpha: 0,
+    fillStyle: "",
+    globalCompositeOperation: "source-over",
+    save() {},
+    restore() {},
+    clearRect() { this.alpha = 0; },
+    fillRect() { this.alpha = Number(this.fillStyle.match(/([\d.]+)\)$/)?.[1] || 0); },
+    drawImage(mask) {
+      if (this.globalCompositeOperation === "destination-out") {
+        this.alpha *= 1 - mask.editedAlpha;
+      }
+    },
+  };
+
+  renderAnnotationOverlay(visibleContext, maskCanvas, 128, 128);
+  const firstPassAlpha = visibleContext.alpha;
+  renderAnnotationOverlay(visibleContext, maskCanvas, 128, 128);
+
+  assert.equal(visibleContext.alpha, firstPassAlpha);
+  assert.equal(firstPassAlpha, 0.36);
 });
