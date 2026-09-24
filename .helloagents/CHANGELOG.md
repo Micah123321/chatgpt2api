@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- **[版本检测]**: 检测 VERSION、CHANGELOG 与 GitHub 更新链接统一指向 Micah123321/chatgpt2api；本次发布版本 1.10.0。
+
 - **[发布]**: Compose 默认镜像切换为 `ghcr.io/micah123321/chatgpt2api:latest`（可通过 `CHATGPT2API_IMAGE` 覆盖），Actions 主分支手动构建支持发布 latest。
 
 - **[协议转换]**: 新增 `gpt-image-2.5` → `gpt-image-2.5-flare` 别名，兼容旧缓存并同步前端列表；28 项相关回归通过。

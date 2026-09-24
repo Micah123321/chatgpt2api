@@ -25,6 +25,7 @@ class QuietHandler(SimpleHTTPRequestHandler):
 def main():
     servers = []
     writes = []
+    version_requests = []
     screenshot_dir = Path(tempfile.mkdtemp(prefix="sub2api-ui-"))
     http = ThreadingHTTPServer(("127.0.0.1", 0), partial(QuietHandler, directory=str(ROOT / "web" / "out")))
     thread = threading.Thread(target=http.serve_forever, daemon=True)
@@ -32,7 +33,14 @@ def main():
     origin = f"http://127.0.0.1:{http.server_port}"
 
     def route_api(route):
-        path = urlparse(route.request.url).path.rstrip("/")
+        parsed = urlparse(route.request.url)
+        if parsed.netloc == "raw.githubusercontent.com":
+            assert parsed.path.startswith("/Micah123321/chatgpt2api/main/"), "Update check used the wrong repository"
+            version_requests.append(parsed.path)
+            body = "9.0.0" if parsed.path.endswith("/VERSION") else "## 9.0.0 - 2026-09-24\n+ [新增] 当前仓库更新测试\n"
+            route.fulfill(status=200, content_type="text/plain", body=body, headers={"Access-Control-Allow-Origin": "*"})
+            return
+        path = parsed.path.rstrip("/")
         payload = None
         if path == "/auth/login":
             payload = {"role": "admin", "subject_id": "test-admin", "name": "test-admin"}
@@ -70,6 +78,14 @@ def main():
             page = context.new_page()
             page.route("**/*", route_api)
             page.goto(origin + "/login/")
+            expect(page.get_by_label("GitHub repository", exact=True)).to_have_attribute("href", "https://github.com/Micah123321/chatgpt2api")
+            page.get_by_title("查看版本更新", exact=True).click()
+            version_dialog = page.get_by_role("dialog")
+            expect(version_dialog.get_by_text("当前仓库更新测试", exact=True)).to_be_visible()
+            expect(version_dialog.get_by_role("link", name="前往 GitHub 更新")).to_have_attribute("href", "https://github.com/Micah123321/chatgpt2api")
+            assert "/Micah123321/chatgpt2api/main/VERSION" in version_requests
+            assert "/Micah123321/chatgpt2api/main/CHANGELOG.md" in version_requests
+            page.keyboard.press("Escape")
             page.get_by_label("密钥", exact=True).fill("browser-test-only")
             page.get_by_role("button", name="登录", exact=True).click()
             page.wait_for_url("**/accounts/**")
@@ -125,7 +141,7 @@ def main():
             expect(page.get_by_text("自动导入已关闭", exact=True)).to_be_visible()
             expect(page.get_by_text("每天 04:30（北京时间 UTC+8）", exact=True)).to_be_visible()
             browser.close()
-        print("PASS: defaults, empty-time validation, explicit save, group payload, polling, Beijing time, edit, disable, reload, mobile dialog")
+        print("PASS: repository update check and links, defaults, empty-time validation, explicit save, group payload, polling, Beijing time, edit, disable, reload, mobile dialog")
         print(f"Screenshots: {screenshot_dir}")
     finally:
         http.shutdown()
