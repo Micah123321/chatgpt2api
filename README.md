@@ -30,6 +30,7 @@ docker compose up -d
 - Web 面板：`http://localhost:3000`
 - API 地址：`http://localhost:3000/v1`
 - 数据目录：`./data`
+- 默认镜像：`ghcr.io/micah123321/chatgpt2api:latest`，可通过 `CHATGPT2API_IMAGE` 覆盖。仓库的 Publish Docker Image 工作流支持从 `main` 手动构建并发布 `latest` 和提交 SHA 标签，包含 amd64 / arm64 架构。
 
 ### WARP / FlareSolverr 稳定代理部署
 
@@ -74,7 +75,7 @@ bun run dev
 后续更新新版本：
 
 ```bash
-docker pull ghcr.io/basketikun/chatgpt2api:latest
+docker pull ghcr.io/micah123321/chatgpt2api:latest
 docker-compose down
 docker-compose up -d
 
@@ -107,6 +108,7 @@ environment:
 - 兼容面向图片场景的 `POST /v1/responses`
 - `GET /v1/models` 返回 `gpt-image-2`、`codex-gpt-image-2`、`auto`、`gpt-5`、`gpt-5-1`、`gpt-5-2`、`gpt-5-3`、`gpt-5-3-mini`、
   `gpt-5-mini`
+- 支持 `gpt-image-2.5` 别名：生成和编辑请求会路由到 `gpt-image-2.5-flare`，也可直接选择 `gpt-image-2.5-flare` 或 `gpt-image-2.5-sunburst`。
 - 支持通过 `n` 返回多张生成结果
 - 支持生成可编辑 PPT 文件
 - 支持生成可编辑 PSD 文件
@@ -136,6 +138,9 @@ environment:
 - 支持搜索、筛选、批量刷新、导出、手动编辑和清理账号
 - 支持四种导入方式：本地 CPA JSON 文件导入、远程 CPA 服务器导入、`sub2api` 服务器导入、`access_token` 导入
 - 支持在设置页配置 `sub2api` 服务器，筛选并批量导入其中的 OpenAI OAuth 账号
+- 支持每个 Sub2API 连接单独设置每日自动导入：在「设置 → Sub2API → 添加/编辑连接」开启「每日自动导入」，选择时间并保存。时间使用北京时间（UTC+8），默认关闭，预填 03:00。
+
+自动导入沿用连接已保存的分组范围（留空为全部 OpenAI OAuth 账号），重复 token 跳过并刷新账号状态。后台每 30 秒检查一次，无需保持浏览器打开，但服务需运行。每天最多自动执行一次；同日重启不会重复执行，若当天错过时间且尚未执行，启动后补跑一次。导入失败会显示在连接卡片，可手动导入或等待次日执行；同一连接已有导入任务时，自动任务会等待它结束。
 
 ### 实验性 / 规划中
 

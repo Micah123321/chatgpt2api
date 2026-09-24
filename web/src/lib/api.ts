@@ -804,6 +804,10 @@ export type Sub2APIServer = {
   email: string;
   has_api_key: boolean;
   group_id: string;
+  auto_sync_enabled: boolean;
+  auto_sync_time: string;
+  readonly auto_sync_last_run_at: string;
+  readonly auto_sync_last_error: string;
   import_job?: CPAImportJob | null;
 };
 
@@ -838,6 +842,8 @@ export async function createSub2APIServer(server: {
   password: string;
   api_key: string;
   group_id: string;
+  auto_sync_enabled?: boolean;
+  auto_sync_time?: string;
 }) {
   return httpRequest<{ server: Sub2APIServer; servers: Sub2APIServer[] }>("/api/sub2api/servers", {
     method: "POST",
@@ -854,6 +860,8 @@ export async function updateSub2APIServer(
     password?: string;
     api_key?: string;
     group_id?: string;
+    auto_sync_enabled?: boolean;
+    auto_sync_time?: string;
   },
 ) {
   return httpRequest<{ server: Sub2APIServer; servers: Sub2APIServer[] }>(`/api/sub2api/servers/${serverId}`, {

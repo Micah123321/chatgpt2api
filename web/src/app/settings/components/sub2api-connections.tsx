@@ -57,6 +57,17 @@ const PAGE_SIZE_OPTIONS = ["50", "100", "200"] as const;
 
 type AuthMode = "password" | "api_key";
 
+function formatAutoSyncRun(value: string) {
+  if (!value) return "尚未执行";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "时间不可用";
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  }).format(date);
+}
+
 function normalizeAccounts(items: Sub2APIRemoteAccount[]) {
   const seen = new Set<string>();
   const accounts: Sub2APIRemoteAccount[] = [];
@@ -94,6 +105,9 @@ export function Sub2APIConnections() {
   const [formPassword, setFormPassword] = useState("");
   const [formApiKey, setFormApiKey] = useState("");
   const [formGroupId, setFormGroupId] = useState("");
+  const [formAutoSyncEnabled, setFormAutoSyncEnabled] = useState(false);
+  const [formAutoSyncTime, setFormAutoSyncTime] = useState("03:00");
+  const isAutoSyncTimeValid = /^([01]\d|2[0-3]):[0-5]\d$/.test(formAutoSyncTime);
   const [authMode, setAuthMode] = useState<AuthMode>("password");
   const [showSecret, setShowSecret] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -137,7 +151,8 @@ export function Sub2APIConnections() {
     const hasRunningJobs = servers.some(
       (server) => server.import_job?.status === "pending" || server.import_job?.status === "running",
     );
-    if (!hasRunningJobs) {
+    const hasAutoSync = servers.some((server) => server.auto_sync_enabled);
+    if (!hasRunningJobs && !hasAutoSync) {
       if (pollTimerRef.current !== null) {
         window.clearInterval(pollTimerRef.current);
         pollTimerRef.current = null;
@@ -157,7 +172,7 @@ export function Sub2APIConnections() {
           }
           toast.error(error instanceof Error ? error.message : "查询导入进度失败");
         });
-    }, 1500);
+    }, hasRunningJobs ? 1500 : 15000);
 
     return () => {
       if (pollTimerRef.current !== null) {
@@ -175,6 +190,8 @@ export function Sub2APIConnections() {
     setFormPassword("");
     setFormApiKey("");
     setFormGroupId("");
+    setFormAutoSyncEnabled(false);
+    setFormAutoSyncTime("03:00");
     setAuthMode("password");
     setShowSecret(false);
     setRemoteGroups(null);
@@ -189,6 +206,8 @@ export function Sub2APIConnections() {
     setFormPassword("");
     setFormApiKey("");
     setFormGroupId(server.group_id || "");
+    setFormAutoSyncEnabled(server.auto_sync_enabled ?? false);
+    setFormAutoSyncTime(server.auto_sync_time ?? "03:00");
     setAuthMode(server.has_api_key ? "api_key" : "password");
     setShowSecret(false);
     setRemoteGroups(null);
@@ -217,6 +236,10 @@ export function Sub2APIConnections() {
   };
 
   const handleSave = async () => {
+    if (!isAutoSyncTimeValid) {
+      toast.error("请选择有效的每日导入时间（HH:MM）");
+      return;
+    }
     if (!formBaseUrl.trim()) {
       toast.error("请输入 Sub2API 地址");
       return;
@@ -242,6 +265,8 @@ export function Sub2APIConnections() {
           name: formName.trim(),
           base_url: formBaseUrl.trim(),
           group_id: formGroupId.trim(),
+          auto_sync_enabled: formAutoSyncEnabled,
+          auto_sync_time: formAutoSyncTime,
         };
         if (authMode === "password") {
           updates.email = formEmail.trim();
@@ -267,6 +292,8 @@ export function Sub2APIConnections() {
           password: authMode === "password" ? formPassword.trim() : "",
           api_key: authMode === "api_key" ? formApiKey.trim() : "",
           group_id: formGroupId.trim(),
+          auto_sync_enabled: formAutoSyncEnabled,
+          auto_sync_time: formAutoSyncTime,
         });
         setServers(data.servers);
         toast.success("连接已添加");
@@ -481,6 +508,19 @@ export function Sub2APIConnections() {
                       </Button>
                     </div>
 
+                    <div className="space-y-1 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-500">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={server.auto_sync_enabled ? "success" : "outline"}>
+                          自动导入{server.auto_sync_enabled ? "已开启" : "已关闭"}
+                        </Badge>
+                        <span>每天 {server.auto_sync_time || "03:00"}（北京时间 UTC+8）</span>
+                      </div>
+                      <p>最近自动执行：{formatAutoSyncRun(server.auto_sync_last_run_at || "")}{server.auto_sync_last_run_at ? "（北京时间）" : ""}</p>
+                      {server.auto_sync_last_error ? (
+                        <p className="break-words text-rose-600">最近自动执行错误：{server.auto_sync_last_error}</p>
+                      ) : null}
+                    </div>
+
                     {importJob ? (
                       <div className="space-y-2 rounded-xl bg-stone-50 px-3 py-3">
                         <div className="text-xs font-medium tracking-[0.16em] text-stone-400 uppercase">导入任务</div>
@@ -543,13 +583,15 @@ export function Sub2APIConnections() {
               <li>点击某个连接的「同步」会拉取其中 platform=openai 且 type=oauth 的账号列表。</li>
               <li>勾选需要的账号后后端会并发拉取 access_token，自动导入本地号池并刷新状态。</li>
               <li>仅会读取 sub2api 凭据中的 access_token；refresh_token 等字段不会写入本地。</li>
+              <li>每日自动导入按北京时间（UTC+8）每天执行一次，保存后生效，由后台运行，无需保持浏览器打开。</li>
+              <li>自动导入当前连接分组内的 OpenAI OAuth 账号，分组留空则导入全部，重复 token 会跳过。</li>
             </ul>
           </div>
         </CardContent>
       </Card>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent showCloseButton={false} className="rounded-2xl p-6">
+        <DialogContent showCloseButton={false} className="max-h-[90vh] overflow-y-auto rounded-2xl p-6">
           <DialogHeader className="gap-2">
             <DialogTitle>{editingServer ? "编辑连接" : "添加连接"}</DialogTitle>
             <DialogDescription className="text-sm leading-6">
@@ -707,6 +749,36 @@ export function Sub2APIConnections() {
               )}
             </div>
           </div>
+          <div className="space-y-3 rounded-xl bg-stone-50 p-3">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="sub2api-auto-sync-enabled"
+                checked={formAutoSyncEnabled}
+                onCheckedChange={(checked) => setFormAutoSyncEnabled(checked === true)}
+                disabled={isSaving}
+              />
+              <label htmlFor="sub2api-auto-sync-enabled" className="text-sm font-medium text-stone-700">每日自动导入</label>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <label htmlFor="sub2api-auto-sync-time" className="text-sm text-stone-700">每日时间（北京时间 UTC+8）</label>
+              <Input
+                id="sub2api-auto-sync-time"
+                type="time"
+                step={60}
+                required
+                value={formAutoSyncTime}
+                onChange={(event) => setFormAutoSyncTime(event.target.value)}
+                disabled={isSaving}
+                aria-invalid={!isAutoSyncTimeValid}
+                aria-describedby="sub2api-auto-sync-help"
+                className="h-9 w-32 rounded-lg border-stone-200 bg-white"
+              />
+            </div>
+            <p id="sub2api-auto-sync-help" className="text-xs leading-5 text-stone-500">
+              点击保存后生效；后台每天按当前分组导入 OpenAI OAuth 账号，分组留空为全部，重复 token 跳过。关闭浏览器不影响执行。
+            </p>
+            {!isAutoSyncTimeValid ? <p className="text-xs text-rose-600">请选择有效时间（HH:MM），不能为空。</p> : null}
+          </div>
           <DialogFooter className="pt-2">
             <Button
               variant="secondary"
@@ -719,10 +791,10 @@ export function Sub2APIConnections() {
             <Button
               className="h-10 rounded-xl bg-stone-950 px-5 text-white hover:bg-stone-800"
               onClick={() => void handleSave()}
-              disabled={isSaving}
+              disabled={isSaving || !isAutoSyncTimeValid}
             >
               {isSaving ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}
-              {editingServer ? "保存修改" : "添加"}
+              {editingServer ? "保存修改" : "保存连接"}
             </Button>
           </DialogFooter>
         </DialogContent>

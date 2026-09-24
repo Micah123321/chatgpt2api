@@ -94,6 +94,8 @@ class Sub2APIServerCreateRequest(BaseModel):
     password: str = ""
     api_key: str = ""
     group_id: str = ""
+    auto_sync_enabled: bool = False
+    auto_sync_time: str = Field(default="03:00", pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
 
 
 class Sub2APIServerUpdateRequest(BaseModel):
@@ -103,6 +105,8 @@ class Sub2APIServerUpdateRequest(BaseModel):
     password: str | None = None
     api_key: str | None = None
     group_id: str | None = None
+    auto_sync_enabled: bool | None = None
+    auto_sync_time: str | None = Field(default=None, pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
 
 
 class Sub2APIImportRequest(BaseModel):
@@ -472,6 +476,8 @@ def create_router() -> APIRouter:
             password=body.password,
             api_key=body.api_key,
             group_id=body.group_id,
+            auto_sync_enabled=body.auto_sync_enabled,
+            auto_sync_time=body.auto_sync_time,
         )
         return {"server": sanitize_sub2api_server(server), "servers": sanitize_sub2api_servers(sub2api_config.list_servers())}
 

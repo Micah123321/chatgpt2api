@@ -686,6 +686,8 @@ class OpenAIBackendAPI:
         _, base_model = split_image_model(model)
         if not base_model:
             return "auto"
+        if base_model == "gpt-image-2.5":
+            return "gpt-image-2.5-flare"
         if base_model == "gpt-image-2":
             return "gpt-5-5-thinking"
         if base_model == CODEX_IMAGE_MODEL:

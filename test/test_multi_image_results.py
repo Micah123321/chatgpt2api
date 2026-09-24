@@ -82,6 +82,13 @@ class MultiImageResultTests(unittest.TestCase):
         self.assertEqual(backend._image_model_slug("codex-gpt-image-2"), "codex-gpt-image-2")
         self.assertEqual(backend._image_model_slug("unknown-image-model"), "auto")
 
+    def test_image_25_alias_routes_to_flare_with_legacy_catalog(self) -> None:
+        backend = OpenAIBackendAPI.__new__(OpenAIBackendAPI)
+        with mock.patch.dict(config.data, {"image_models_cache": ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"]}):
+            self.assertEqual(backend._image_model_slug("gpt-image-2.5"), "gpt-image-2.5-flare")
+            self.assertEqual(backend._image_model_slug("gpt-image-2.5-flare"), "gpt-image-2.5-flare")
+            self.assertEqual(backend._image_model_slug("gpt-image-2.5-sunburst"), "gpt-image-2.5-sunburst")
+
     def test_reference_image_count_does_not_increase_generation_concurrency(self) -> None:
         request = ConversationRequest(
             model="gpt-image-2",

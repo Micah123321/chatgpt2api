@@ -50,6 +50,7 @@ class ImageModelServiceTests(unittest.TestCase):
             result = image_model_service.refresh_image_model_catalog()
 
         self.assertTrue(result["refreshed"])
+        self.assertIn("gpt-image-2.5", saved_payload["image_models_cache"])
         self.assertIn("gpt-image-2.5-sunburst", saved_payload["image_models_cache"])
         self.assertIn("gpt-5-6", saved_payload["image_models_cache"])
         self.assertNotIn("gpt-5.6-mini", saved_payload["image_models_cache"])

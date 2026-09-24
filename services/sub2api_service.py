@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Lock
 
@@ -17,6 +18,8 @@ from services.config import DATA_DIR
 
 
 SUB2API_CONFIG_FILE = DATA_DIR / "sub2api_config.json"
+SYNC_TIMEZONE = timezone(timedelta(hours=8))
+SYNC_TIME_PATTERN = r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
 
 # Cached JWT per server to avoid re-login on every list/import call.
 # Token lifetime on sub2api defaults to 24h; we refresh 5 min before expiry.
@@ -56,7 +59,7 @@ def _normalize_import_job(raw: object, *, fail_unfinished: bool) -> dict | None:
     }
 
 
-def _normalize_server(raw: dict) -> dict:
+def _normalize_server(raw: dict, *, fail_unfinished: bool = False) -> dict:
     return {
         "id": _clean(raw.get("id")) or _new_id(),
         "name": _clean(raw.get("name")),
@@ -65,7 +68,11 @@ def _normalize_server(raw: dict) -> dict:
         "password": _clean(raw.get("password")),
         "api_key": _clean(raw.get("api_key")),
         "group_id": _clean(raw.get("group_id")),
-        "import_job": _normalize_import_job(raw.get("import_job"), fail_unfinished=True),
+        "auto_sync_enabled": raw.get("auto_sync_enabled") is True,
+        "auto_sync_time": _clean(raw.get("auto_sync_time")) or "03:00",
+        "auto_sync_last_run_at": _clean(raw.get("auto_sync_last_run_at")),
+        "auto_sync_last_error": _clean(raw.get("auto_sync_last_error")),
+        "import_job": _normalize_import_job(raw.get("import_job"), fail_unfinished=fail_unfinished),
     }
 
 
@@ -81,17 +88,19 @@ class Sub2APIConfig:
         try:
             raw = json.loads(self._store_file.read_text(encoding="utf-8"))
             if isinstance(raw, list):
-                return [_normalize_server(item) for item in raw if isinstance(item, dict)]
+                return [_normalize_server(item, fail_unfinished=True) for item in raw if isinstance(item, dict)]
         except Exception:
             pass
         return []
 
     def _save(self) -> None:
         self._store_file.parent.mkdir(parents=True, exist_ok=True)
-        self._store_file.write_text(
+        temporary = self._store_file.with_suffix(".tmp")
+        temporary.write_text(
             json.dumps(self._servers, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+        temporary.replace(self._store_file)
 
     def list_servers(self) -> list[dict]:
         with self._lock:
@@ -113,6 +122,8 @@ class Sub2APIConfig:
         password: str,
         api_key: str,
         group_id: str = "",
+        auto_sync_enabled: bool = False,
+        auto_sync_time: str = "03:00",
     ) -> dict:
         server = _normalize_server({
             "id": _new_id(),
@@ -122,6 +133,8 @@ class Sub2APIConfig:
             "password": password,
             "api_key": api_key,
             "group_id": group_id,
+            "auto_sync_enabled": auto_sync_enabled,
+            "auto_sync_time": auto_sync_time,
         })
         with self._lock:
             self._servers.append(server)
@@ -166,6 +179,55 @@ class Sub2APIConfig:
                 self._save()
                 return dict(next_server)
         return None
+
+    def begin_import(self, server_id: str, job: dict, *, scheduled_at: datetime | None = None) -> dict | None:
+        # Claim the run and persist its date before any network work. This also
+        # prevents a manual import from overwriting a scheduled job in progress.
+        with self._lock:
+            for index, server in enumerate(self._servers):
+                if server["id"] != server_id:
+                    continue
+                current_job = server.get("import_job") or {}
+                if current_job.get("status") in {"pending", "running"}:
+                    if scheduled_at is not None:
+                        return None
+                    raise ValueError("该服务器已有导入任务正在执行")
+                next_server = dict(server)
+                if scheduled_at is not None:
+                    local_now = scheduled_at.astimezone(SYNC_TIMEZONE)
+                    sync_time = server.get("auto_sync_time", "03:00")
+                    if not server.get("auto_sync_enabled") or not re.fullmatch(SYNC_TIME_PATTERN, sync_time):
+                        return None
+                    if local_now.strftime("%H:%M") < sync_time:
+                        return None
+                    try:
+                        previous = datetime.fromisoformat(server.get("auto_sync_last_run_at") or "")
+                        if previous.astimezone(SYNC_TIMEZONE).date() >= local_now.date():
+                            return None
+                    except ValueError:
+                        pass
+                    next_server["auto_sync_last_run_at"] = local_now.isoformat()
+                    next_server["auto_sync_last_error"] = ""
+                next_server["import_job"] = _normalize_import_job(job, fail_unfinished=False)
+                self._servers[index] = next_server
+                try:
+                    self._save()
+                except Exception:
+                    # No worker has started yet; do not leave an orphan pending job.
+                    self._servers[index] = server
+                    raise
+                return dict(next_server)
+        if scheduled_at is None:
+            raise ValueError("server not found")
+        return None
+
+    def set_sync_error(self, server_id: str, message: str) -> None:
+        with self._lock:
+            for server in self._servers:
+                if server["id"] == server_id:
+                    server["auto_sync_last_error"] = message
+                    self._save()
+                    return
 
     def get_import_job(self, server_id: str) -> dict | None:
         with self._lock:
@@ -435,18 +497,14 @@ class Sub2APIImportService:
     def __init__(self, sub2api_config: Sub2APIConfig):
         self._config = sub2api_config
 
-    def start_import(self, server: dict, account_ids: list[str]) -> dict:
-        ids = [_clean(item) for item in account_ids if _clean(item)]
-        if not ids:
-            raise ValueError("account ids is required")
-
-        server_id = _clean(server.get("id"))
-        job = {
+    @staticmethod
+    def _new_job(total: int = 0) -> dict:
+        return {
             "job_id": uuid.uuid4().hex,
             "status": "pending",
             "created_at": _now_iso(),
             "updated_at": _now_iso(),
-            "total": len(ids),
+            "total": total,
             "completed": 0,
             "added": 0,
             "skipped": 0,
@@ -454,18 +512,85 @@ class Sub2APIImportService:
             "failed": 0,
             "errors": [],
         }
-        saved = self._config.set_import_job(server_id, job)
-        if saved is None:
-            raise ValueError("server not found")
 
+    def start_import(self, server: dict, account_ids: list[str]) -> dict:
+        ids = list(dict.fromkeys(_clean(item) for item in account_ids if _clean(item)))
+        if not ids:
+            raise ValueError("account ids is required")
+        saved = self._config.begin_import(_clean(server.get("id")), self._new_job(len(ids)))
+        self._launch_import(saved, ids)
+        return dict(saved["import_job"])
+
+    def run_due_imports(self, now: datetime | None = None) -> None:
+        now = now or datetime.now(SYNC_TIMEZONE)
+        for server in self._config.list_servers():
+            try:
+                saved = self._config.begin_import(server["id"], self._new_job(), scheduled_at=now)
+                if saved is not None:
+                    self._launch_import(saved, None)
+            except Exception as exc:
+                print(f"[sub2api-scheduler] {type(exc).__name__}")
+
+    def start_scheduler(self, stop_event: threading.Event) -> threading.Thread:
+        def worker() -> None:
+            while not stop_event.is_set():
+                try:
+                    self.run_due_imports()
+                except Exception as exc:
+                    # Do not print upstream response bodies or credentials.
+                    print(f"[sub2api-scheduler] {type(exc).__name__}")
+                stop_event.wait(30)
+
+        thread = threading.Thread(target=worker, name="sub2api-scheduler", daemon=True)
+        thread.start()
+        return thread
+
+    def _launch_import(self, server: dict, account_ids: list[str] | None) -> None:
         thread = threading.Thread(
-            target=self._run_import,
-            args=(server_id, server, ids),
-            name=f"sub2api-import-{server_id}",
+            target=self._execute_import,
+            args=(server, account_ids),
+            name=f"sub2api-import-{server['id']}",
             daemon=True,
         )
-        thread.start()
-        return dict(saved.get("import_job") or job)
+        try:
+            thread.start()
+        except Exception as exc:
+            self._fail_import(server["id"], exc, scheduled=account_ids is None)
+
+    def _fail_import(self, server_id: str, exc: Exception, *, scheduled: bool) -> None:
+        message = f"导入失败（{type(exc).__name__}），请检查连接配置及远端服务"
+        current = self._config.get_import_job(server_id) or {}
+        errors = [*(current.get("errors") or []), {"name": "import", "error": message}]
+        try:
+            self._update_job(server_id, status="failed", errors=errors, failed=len(errors))
+        except Exception as storage_error:
+            # set_import_job has marked the in-memory job failed even if disk is unavailable.
+            print(f"[sub2api-import] {type(storage_error).__name__}")
+        if scheduled:
+            try:
+                self._config.set_sync_error(server_id, message)
+            except Exception as storage_error:
+                print(f"[sub2api-import] {type(storage_error).__name__}")
+
+    def _execute_import(self, server: dict, account_ids: list[str] | None) -> None:
+        server_id = server["id"]
+        scheduled = account_ids is None
+        try:
+            self._update_job(server_id, status="running")
+            if scheduled:
+                accounts = list_remote_accounts(server)
+                account_ids = list(dict.fromkeys(_clean(item.get("id")) for item in accounts if _clean(item.get("id"))))
+                self._update_job(server_id, total=len(account_ids))
+                if not account_ids:
+                    self._update_job(server_id, status="completed")
+                    return
+            self._run_import(server_id, server, account_ids)
+            if scheduled:
+                job = self._config.get_import_job(server_id) or {}
+                failed = int(job.get("failed") or 0)
+                self._config.set_sync_error(server_id, f"本次导入有 {failed} 项失败，请查看导入进度" if failed else "")
+        except Exception as exc:
+            self._fail_import(server_id, exc, scheduled=scheduled)
 
     def _update_job(self, server_id: str, **updates) -> None:
         current = self._config.get_import_job(server_id)
@@ -485,16 +610,21 @@ class Sub2APIImportService:
     def _run_import(self, server_id: str, server: dict, account_ids: list[str]) -> None:
         self._update_job(server_id, status="running")
 
-        try:
-            tokens, errors = _fetch_access_tokens_for_accounts(server, account_ids)
-        except Exception as exc:
-            message = str(exc) or "unknown error"
-            for account_id in account_ids:
-                self._append_error(server_id, account_id, message)
-            tokens = []
-        else:
-            for error in errors:
-                self._append_error(server_id, _clean(error.get("name")), _clean(error.get("error")) or "unknown error")
+        tokens: list[str] = []
+        # Automatic imports may select thousands of accounts; bound each GET URL.
+        for offset in range(0, len(account_ids), 100):
+            batch = account_ids[offset:offset + 100]
+            try:
+                batch_tokens, errors = _fetch_access_tokens_for_accounts(server, batch)
+                tokens.extend(batch_tokens)
+            except Exception as exc:
+                message = f"导出账号失败（{type(exc).__name__}），请检查连接配置及远端服务"
+                for account_id in batch:
+                    self._append_error(server_id, account_id, message)
+            else:
+                for error in errors:
+                    self._append_error(server_id, _clean(error.get("name")), _clean(error.get("error")) or "unknown error")
+        tokens = list(dict.fromkeys(tokens))
 
         current = self._config.get_import_job(server_id) or {}
         self._update_job(
@@ -515,6 +645,8 @@ class Sub2APIImportService:
 
         add_result = account_service.add_accounts(tokens, source_type="codex")
         refresh_result = account_service.refresh_accounts(tokens)
+        for index, _ in enumerate(refresh_result.get("errors") or []):
+            self._append_error(server_id, f"refresh-{index + 1}", "账号已导入，但刷新失败，请在号池检查账号状态")
         current = self._config.get_import_job(server_id) or {}
         self._update_job(
             server_id,
