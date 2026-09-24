@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- **[文档]**: 重写 README 的项目介绍与上手步骤，补齐 1.10.0 模型别名、模型刷新、Sub2API 定时导入、标注编辑与浏览器缓存说明；更新当前仓库地址、Docker 升级步骤和 API 示例。
+
 - **[版本检测]**: 检测 VERSION、CHANGELOG 与 GitHub 更新链接统一指向 Micah123321/chatgpt2api；本次发布版本 1.10.0。
 
 - **[发布]**: Compose 默认镜像切换为 `ghcr.io/micah123321/chatgpt2api:latest`（可通过 `CHATGPT2API_IMAGE` 覆盖），Actions 主分支手动构建支持发布 latest。
